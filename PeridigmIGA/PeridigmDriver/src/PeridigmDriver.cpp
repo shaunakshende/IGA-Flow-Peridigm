@@ -805,20 +805,15 @@ PetscErrorCode input (PARAMETERS *par,ParticleManager &manager, AppCtx *user)
 {
 
   PetscFunctionBegin;
-  //PetscPrintf(PETSC_COMM_WORLD," Input Begin");
-  PetscErrorCode  ierr;
+  PetscErrorCode ierr;
   PetscInt i,j;
-  PetscInt num_proc;
+  PetscMPIInt rank, num_proc;
   PetscInt temp;
   PetscReal tempR;
   int pr;
 
   MPI_Comm_size(MPI_COMM_WORLD, &num_proc);
-  PetscMPIInt rank;
   MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
-
-  //PetscPrintf(PETSC_COMM_WORLD," Processor number: %d", rank);
-
 
   ostringstream convert;
   convert << "foreground" << rank+1 << ".dat";
@@ -869,10 +864,6 @@ PetscErrorCode input (PARAMETERS *par,ParticleManager &manager, AppCtx *user)
               fd.nodalVolumeInitial = 0.0;
               fd.nodalVolumeInitial += fd.nodalVolume;
               fd.referenceNodalVolume=fd.nodalVolumeInitial;
-
-              //Debugging
-              //PetscPrintf(PETSC_COMM_WORLD,"volI %e vol %e \n",fd.nodalVolume, fd.nodalVolumeInitial);
-
 
               fd.Boundary = 0;
               fd.Inside = 1;
@@ -1344,9 +1335,18 @@ PetscErrorCode OutputRestarts(PARAMETERS *par,Vec U,Vec V,ParticleManager &manag
 				Strain.write( (char*)&fd.totalStrain0[4], sizeof(double));
 				Strain.write( (char*)&fd.totalStrain0[5], sizeof(double));
 
+        Geo.write( (char*)&info.initialCoord[0], sizeof(double));
+				Geo.write( (char*)&info.initialCoord[1], sizeof(double));
+				Geo.write( (char*)&info.initialCoord[2], sizeof(double));
 				Geo.write( (char*)&info.currentCoord[0], sizeof(double));
 				Geo.write( (char*)&info.currentCoord[1], sizeof(double));
 				Geo.write( (char*)&info.currentCoord[2], sizeof(double));
+        Geo.write( (char*)&fd.computed_currentCoord[0], sizeof(double));
+        Geo.write( (char*)&fd.computed_currentCoord[1], sizeof(double));
+        Geo.write( (char*)&fd.computed_currentCoord[2], sizeof(double));
+        Geo.write( (char*)&fd.totalPhysicalDisplacement[0], sizeof(double));
+        Geo.write( (char*)&fd.totalPhysicalDisplacement[1], sizeof(double));
+        Geo.write( (char*)&fd.totalPhysicalDisplacement[2], sizeof(double));
 
 				DefGrad.write( (char*)&fd.currentDeformationGradient[0], sizeof(double));
 				DefGrad.write( (char*)&fd.currentDeformationGradient[1], sizeof(double));
@@ -1375,7 +1375,7 @@ PetscErrorCode OutputRestarts(PARAMETERS *par,Vec U,Vec V,ParticleManager &manag
         Vol.write( (char*)&fd.nodalDensity, sizeof(double));
         Vol.write( (char*)&fd.nodalDensityInitial, sizeof(double));
         Vol.write( (char*)&fd.penaltyParameter, sizeof(double));
-        Vol.write( (char*)& fd.referencePenaltyParameterInternal, sizeof(double));
+        Vol.write( (char*)&fd.referencePenaltyParameterInternal, sizeof(double));
 
 				Bound.write( (char*)&fd.Boundary, sizeof(int));
         Bound.write( (char*)&fd.Inside, sizeof(int));
@@ -1394,61 +1394,6 @@ PetscErrorCode OutputRestarts(PARAMETERS *par,Vec U,Vec V,ParticleManager &manag
 		   Vol.close();
 		   Bound.close();
 		   Num.close();
-
-  PetscFunctionReturn(0);
-}
-
-#undef __FUNCT__
-#define __FUNCT__ "OutputOldGeometry"
-PetscErrorCode OutputOldGeometry(PARAMETERS *par,ParticleManager &manager)
-{
-  PetscFunctionBegin;
-  PetscErrorCode ierr;
-  PetscInt i,j;
-  PetscInt count=par->numNodes;
-
-  PetscInt num_proc;
-  MPI_Comm_size(MPI_COMM_WORLD, &num_proc);
-  PetscMPIInt rank;
-  MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
-  ostringstream convert1;
-
-
-  string fname;
-
-
-  PetscInt counter = 0; //Number of nodes stored in current rank
-  BGL_FORALL_VERTICES(v,manager.graph,Graph){
- 	 ParticleInfo info = get(info_property,v);
- 	 if(!info.isTask){
- 		 counter++;
- 	 }
-  }
-
-     // ##################################################
-     //                 Old Geometry File
-     // ##################################################
-
-  if (counter > 0){
- 	  convert1 << "RestartGeo." << rank << "." << par->stepNumber << ".dat";
- 	  fname = convert1.str();
- 	  ofstream Geo;
- 	  Geo.open(fname, ios::out | ios::binary);
-
-        BGL_FORALL_VERTICES(v,manager.graph,Graph){
-       	 ParticleInfo info = get(info_property,v);
-       	 FieldData fd = get(fd_property,v);
-       	if(!info.isTask){
-       		Geo.write( (char*)&info.currentCoord[0], sizeof(double));
-		Geo.write( (char*)&info.currentCoord[1], sizeof(double));
-		Geo.write( (char*)&info.currentCoord[2], sizeof(double));
-
-       	}
-
-        }
-        Geo.close();
-
-  }
 
   PetscFunctionReturn(0);
 }
@@ -1503,15 +1448,6 @@ PetscErrorCode ReadLastResults(PARAMETERS *par,Vec U,Vec V,PetscInt StepRestart,
     fname = convert2.str();
     ifstream Geo;
     Geo.open(fname, ios::in | ios::binary);
-
-    // Geometry Old
-    PetscInt temp1 = StepRestart-1;
-    ostringstream convert3;
-    convert3 << "RestartGeo." << rank << "." << temp1 << ".dat";
-    fname = convert3.str();
-    ifstream Geo1;
-    Geo1.open(fname, ios::in | ios::binary);
-
 
     // Velocity
     ostringstream convert4;
@@ -1615,17 +1551,18 @@ PetscErrorCode ReadLastResults(PARAMETERS *par,Vec U,Vec V,PetscInt StepRestart,
 	  DefGrad.read( (char*)&fd.currentDeformationGradient[7], sizeof(double));
 	  DefGrad.read( (char*)&fd.currentDeformationGradient[8], sizeof(double));
 
+    Geo.read( (char*)&info.initialCoord[0], sizeof(double));
+	  Geo.read( (char*)&info.initialCoord[1], sizeof(double));
+ 	  Geo.read( (char*)&info.initialCoord[2], sizeof(double));
     Geo.read( (char*)&info.currentCoord[0], sizeof(double));
 	  Geo.read( (char*)&info.currentCoord[1], sizeof(double));
  	  Geo.read( (char*)&info.currentCoord[2], sizeof(double));
-
-	  Geo1.read( (char*)&fd.totalPhysicalDisplacement[0], sizeof(double));
-    Geo1.read( (char*)&fd.totalPhysicalDisplacement[1], sizeof(double));
-    Geo1.read( (char*)&fd.totalPhysicalDisplacement[2], sizeof(double));
-
-    fd.totalPhysicalDisplacement[0] = info.currentCoord[0] - fd.totalPhysicalDisplacement[0];
-    fd.totalPhysicalDisplacement[1] = info.currentCoord[1] - fd.totalPhysicalDisplacement[1];
-    fd.totalPhysicalDisplacement[2] = info.currentCoord[2] - fd.totalPhysicalDisplacement[2];
+    Geo.read( (char*)&fd.computed_currentCoord[0], sizeof(double));
+    Geo.read( (char*)&fd.computed_currentCoord[1], sizeof(double));
+    Geo.read( (char*)&fd.computed_currentCoord[2], sizeof(double));
+    Geo.read( (char*)&fd.totalPhysicalDisplacement[0], sizeof(double));
+    Geo.read( (char*)&fd.totalPhysicalDisplacement[1], sizeof(double));
+    Geo.read( (char*)&fd.totalPhysicalDisplacement[2], sizeof(double));
 
      Velocity.read( (char*)&fd.totalPhysicalVelocity[0], sizeof(double));
      Velocity.read( (char*)&fd.totalPhysicalVelocity[1], sizeof(double));
@@ -1672,7 +1609,6 @@ PetscErrorCode ReadLastResults(PARAMETERS *par,Vec U,Vec V,PetscInt StepRestart,
   Stress.close();
   Strain.close();
   Geo.close();
-  Geo1.close();
   Velocity.close();
   Acceleration.close();
   Damage.close();
@@ -4288,6 +4224,378 @@ PetscErrorCode IGAComputeIJacobianComp(IGA iga,
 
 //// Generalized alpha Time Integration + Lagrangian update routines ////
 #undef __FUNCT__
+#define __FUNCT__ "initializeFieldData"
+PetscErrorCode initializeFieldData(PARAMETERS *par,
+                                      AppCtx *user,
+                                      ParticleManager &manager)
+{
+// Initialize any quantites associated with fieldData which are not set in
+// the input function.
+PetscFunctionBegin;
+PetscErrorCode ierr;
+PetscInt j;
+
+if(par->stepNumber==0){
+pair<OutEdgeIterator,OutEdgeIterator> its = out_edges(manager.myTaskVertex,manager.graph);
+for(auto it=its.first; it != its.second; ++it){
+  Edge edge = *it;
+  Vertex v = target(edge,manager.graph);
+  ParticleInfo info = get(info_property,v);
+  FieldData fd = get(fd_property,v);
+  if(!info.isTask){
+    fd.Inside = 1;
+    fd.Boundary = 0;
+    fd.damage = 0;
+    fd.damage0 = 0;
+
+    for (j=0;j<3;j++){
+      fd.totalPhysicalAcceleration[j] = 0.0;
+      fd.totalPhysicalDisplacement[j] = 0.0;
+      fd.totalPhysicalVelocity[j] = 0.0;
+
+      fd.totalPhysicalDisplacementOldStep[j] = 0.0;
+      fd.totalPhysicalVelocityOldStep[j] = 0.0;
+      fd.totalPhysicalAccelerationOldStep[j] = 0.0;
+
+      fd.totalPhysicalDisplacementOldIteration[j] = 0.0;
+      fd.totalPhysicalVelocityOldIteration[j] = 0.0;
+      fd.totalPhysicalAccelerationOldIteration[j] = 0.0;
+
+      fd.AccelerationIncrement[j] = 0.0;
+      fd.interpolatedVelocity[j] = 0.0;
+
+      fd.referenceCoord[j] = fd.currentCoord[j];
+    }
+
+    for(j = 0 ; j < 9 ; j++){
+    fd.currentDeformationGradient[j] = 0.0;
+    fd.alphaDeformationGradient[j] = 0.0;
+    fd.DeformationGradientOld[j] = 0.0;
+    fd.velocityGradient[j] = 0.0;
+    }
+
+    fd.DeformationGradientOld[0] = 1.0;
+    fd.DeformationGradientOld[4] = 1.0;
+    fd.DeformationGradientOld[8] = 1.0;
+
+    fd.alphaDeformationGradient[0] = 1.0;
+    fd.alphaDeformationGradient[4] = 1.0;
+    fd.alphaDeformationGradient[8] = 1.0;
+
+    fd.currentDeformationGradient[0] = 1.0;
+    fd.currentDeformationGradient[4] = 1.0;
+    fd.currentDeformationGradient[8] = 1.0;
+
+    fd.determinantAlphaDeformationGradient = 1.0;
+    fd.determinantCurrentDeformationGradient = 1.0;
+
+  }
+  put(fd_property,v,fd);
+  put(info_property,v,info);
+}
+
+}
+  PetscFunctionReturn(0);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "storeOldStep"
+PetscErrorCode storeOldStep(PARAMETERS *par,
+                                      AppCtx *user,
+                                      ParticleManager &manager)
+{
+// Store OldStep Kinematic quantites as curent
+PetscFunctionBegin;
+PetscErrorCode ierr;
+
+pair<OutEdgeIterator,OutEdgeIterator> its = out_edges(manager.myTaskVertex,manager.graph);
+for(auto it=its.first; it != its.second; ++it){
+  Edge edge = *it;
+  Vertex v = target(edge,manager.graph);
+  ParticleInfo info = get(info_property,v);
+  FieldData fd = get(fd_property,v);
+  if(!info.isTask && fd.Boundary==0){
+    for(PetscInt j = 0 ; j < user->iga->dim ; j++){
+    fd.totalPhysicalVelocityOldStep[j] = fd.totalPhysicalVelocity[j];
+    fd.totalPhysicalAccelerationOldStep[j] = fd.totalPhysicalAcceleration[j];
+    fd.totalPhysicalDisplacementOldStep[j] = fd.totalPhysicalDisplacement[j];
+    }
+  }
+  put(fd_property,v,fd);
+  put(info_property,v,info);
+}
+  PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "storeOldIteration"
+PetscErrorCode storeOldIteration(PARAMETERS *par,
+                                      AppCtx *user,
+                                      ParticleManager &manager)
+{
+// Store OldIteration Kinematic quantites as curent
+PetscFunctionBegin;
+PetscErrorCode ierr;
+
+pair<OutEdgeIterator,OutEdgeIterator> its = out_edges(manager.myTaskVertex,manager.graph);
+for(auto it=its.first; it != its.second; ++it){
+  Edge edge = *it;
+  Vertex v = target(edge,manager.graph);
+  ParticleInfo info = get(info_property,v);
+  FieldData fd = get(fd_property,v);
+  if(!info.isTask && fd.Boundary==0){
+    for(PetscInt j = 0 ; j < user->iga->dim ; j++){
+      fd.totalPhysicalVelocityOldIteration[j] = fd.totalPhysicalVelocity[j];
+      fd.totalPhysicalAccelerationOldIteration[j] = fd.totalPhysicalAcceleration[j];
+      fd.totalPhysicalDisplacementOldIteration[j] = fd.totalPhysicalDisplacement[j];
+    }
+  }
+  put(fd_property,v,fd);
+  put(info_property,v,info);
+}
+  PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "storeTempCoord"
+PetscErrorCode storeTempCoord(PARAMETERS *par,
+                                      AppCtx *user,
+                                      ParticleManager &manager)
+{
+// Store OldStep Kinematic quantites as curent
+PetscFunctionBegin;
+PetscErrorCode ierr;
+
+pair<OutEdgeIterator,OutEdgeIterator> its = out_edges(manager.myTaskVertex,manager.graph);
+for(auto it=its.first; it != its.second; ++it){
+  Edge edge = *it;
+  Vertex v = target(edge,manager.graph);
+  ParticleInfo info = get(info_property,v);
+  FieldData fd = get(fd_property,v);
+  if(!info.isTask && fd.Boundary==0){
+    for(PetscInt j = 0 ; j < user->iga->dim ; j++){
+      info.tempCoord[j] = info.currentCoord[j];
+      fd.computed_tempCoord[j] = fd.computed_currentCoord[j];
+    }
+  }
+  put(fd_property,v,fd);
+  put(info_property,v,info);
+}
+  PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "TSpredictStage_GeneralizedAlpha_FG"
+PetscErrorCode TSpredictStage_GeneralizedAlpha_FG(PARAMETERS *par,
+                                      AppCtx *user,
+                                      ParticleManager &manager)
+{
+// Store OldStep Kinematic quantites as curent
+PetscFunctionBegin;
+PetscErrorCode ierr;
+
+pair<OutEdgeIterator,OutEdgeIterator> its = out_edges(manager.myTaskVertex,manager.graph);
+for(auto it=its.first; it != its.second; ++it){
+  Edge edge = *it;
+  Vertex v = target(edge,manager.graph);
+  ParticleInfo info = get(info_property,v);
+  FieldData fd = get(fd_property,v);
+  if(!info.isTask && fd.Boundary==0){
+    for(PetscInt j = 0 ; j < user->iga->dim ; j++){
+
+      //Ap = (Gamma-1)/Gamma*A0
+      fd.totalPhysicalAcceleration[j] = (user->Gamma - 1)/user->Gamma*fd.totalPhysicalAcceleration[j];
+
+      //Vp = V0 (currently not Necessary to assign)
+      fd.totalPhysicalVelocity[j] = fd.totalPhysicalVelocityOldStep[j];
+
+      // Dp = D0 + dt*V0 + dt*dt/2*((1-2*Beta)*A0 + 2*Beta*Ap);
+      fd.totalPhysicalDisplacement[j] = fd.totalPhysicalDisplacementOldStep[j] + par->timeStep*fd.totalPhysicalVelocityOldStep[j];
+      fd.totalPhysicalDisplacement[j] += par->timeStep*par->timeStep/2*((1-2*user->Beta)*fd.totalPhysicalAccelerationOldStep[j]+2*user->Beta*fd.totalPhysicalAcceleration[j]);
+
+      if (fd.material == 0){
+          fd.DeformationGradientOld[j+0] = fd.currentDeformationGradient[j+0];
+          fd.DeformationGradientOld[j+1] = fd.currentDeformationGradient[j+1];
+          fd.DeformationGradientOld[j+2] = fd.currentDeformationGradient[j+2];
+      }
+    }
+  }
+  put(fd_property,v,fd);
+  put(info_property,v,info);
+}
+  PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "TSAlphaLevels_GeneralizedAlpha_FG"
+PetscErrorCode TSAlphaLevels_GeneralizedAlpha_FG(PARAMETERS *par,
+                                      AppCtx *user,
+                                      ParticleManager &manager)
+{
+// Store OldStep Kinematic quantites as curent
+PetscFunctionBegin;
+PetscErrorCode ierr;
+
+pair<OutEdgeIterator,OutEdgeIterator> its = out_edges(manager.myTaskVertex,manager.graph);
+for(auto it=its.first; it != its.second; ++it){
+  Edge edge = *it;
+  Vertex v = target(edge,manager.graph);
+  ParticleInfo info = get(info_property,v);
+  FieldData fd = get(fd_property,v);
+  if(!info.isTask && fd.Boundary==0){
+    for(PetscInt j = 0 ; j < user->iga->dim ; j++){
+
+      // Va = V0 + Alpha_f*(V1-V0)
+      fd.totalPhysicalVelocity[j] = fd.totalPhysicalVelocityOldStep[j] + user->Alpha_f*(fd.totalPhysicalVelocity[j] - fd.totalPhysicalVelocityOldStep[j]);
+
+      // Da = D0 + Alpha_f*(D1-D0)
+      fd.totalPhysicalDisplacement[j] = fd.totalPhysicalDisplacementOldStep[j] + user->Alpha_f*(fd.totalPhysicalDisplacement[j] - fd.totalPhysicalDisplacementOldStep[j]);
+
+      if(fd.material==0){
+        // Aa = A0 + Alpha_m*(A1-A0)
+        fd.totalPhysicalAcceleration[j] = fd.totalPhysicalAccelerationOldStep[j] + user->Alpha_m*(fd.totalPhysicalAcceleration[j] - fd.totalPhysicalAccelerationOldStep[j]);
+      }
+
+    }
+  }
+  put(fd_property,v,fd);
+  put(info_property,v,info);
+}
+  PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "PDUpdateStage_GeneralizedAlpha"
+PetscErrorCode PDUpdateStage_GeneralizedAlpha(PARAMETERS *par,
+                                      AppCtx *user,
+                                      ParticleManager &manager)
+{
+// Solid (PD) Update Stage
+PetscFunctionBegin;
+PetscErrorCode ierr;
+
+pair<OutEdgeIterator,OutEdgeIterator> its = out_edges(manager.myTaskVertex,manager.graph);
+for(auto it=its.first; it != its.second; ++it){
+  Edge edge = *it;
+  Vertex v = target(edge,manager.graph);
+  ParticleInfo info = get(info_property,v);
+  FieldData fd = get(fd_property,v);
+  if(!info.isTask && fd.Boundary==0 && fd.material==0){
+    for(PetscInt j = 0 ; j < user->iga->dim ; j++){
+
+      //A1 = A1 + dA
+      if(PETSC_TRUE){
+        fd.totalPhysicalAcceleration[j] = fd.totalPhysicalAccelerationOldIteration[j] + fd.AccelerationIncrement[j];
+      }
+      else{
+        // only the penalty terms may cause acceleration for flying points
+        fd.totalPhysicalAcceleration[j] = fd.AccelerationIncrement[j];
+      }
+
+      //V1 = V1 + Gamma*dt*dA
+      fd.totalPhysicalVelocity[j] = fd.totalPhysicalVelocityOldIteration[j];
+      fd.totalPhysicalVelocity[j] += user->Gamma*par->timeStep*fd.AccelerationIncrement[j];
+
+      //X1 = X1 + Beta*dt²*dA
+      fd.totalPhysicalDisplacement[j] = fd.totalPhysicalDisplacementOldIteration[j];
+      fd.totalPhysicalDisplacement[j] += user->Beta*par->timeStep*par->timeStep*fd.AccelerationIncrement[j];
+
+    }
+  }
+  put(fd_property,v,fd);
+  put(info_property,v,info);
+}
+  PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "UpdateStage_GeneralizedAlpha_FG"
+PetscErrorCode UpdateStage_GeneralizedAlpha_FG(PARAMETERS *par,
+                                      AppCtx *user,
+                                      ParticleManager &manager)
+{
+// Solid (PD) Update Stage
+PetscFunctionBegin;
+PetscErrorCode ierr;
+
+pair<OutEdgeIterator,OutEdgeIterator> its = out_edges(manager.myTaskVertex,manager.graph);
+for(auto it=its.first; it != its.second; ++it){
+  Edge edge = *it;
+  Vertex v = target(edge,manager.graph);
+  ParticleInfo info = get(info_property,v);
+  FieldData fd = get(fd_property,v);
+  if(!info.isTask && fd.Boundary==0 && !fd.material==0){
+    for(PetscInt j = 0 ; j < user->iga->dim ; j++){
+
+      fd.AccelerationIncrement[j] = fd.totalPhysicalVelocity[j] - fd.totalPhysicalVelocityOldIteration[j];
+      fd.AccelerationIncrement[j] /= user->Gamma*par->timeStep;
+
+      //A1 = A1 + dA
+      fd.totalPhysicalAcceleration[j] = fd.totalPhysicalAccelerationOldIteration[j] + fd.AccelerationIncrement[j];
+
+      //X1 = X1 + Beta*dt²*dA
+      fd.totalPhysicalDisplacement[j] = fd.totalPhysicalDisplacementOldIteration[j];
+      fd.totalPhysicalDisplacement[j] += user->Beta*par->timeStep*par->timeStep*fd.AccelerationIncrement[j];
+
+
+    }
+  }
+  put(fd_property,v,fd);
+  put(info_property,v,info);
+}
+  PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "updateCurrentCoordinate_FG"
+PetscErrorCode updateCurrentCoordinate_FG(PARAMETERS *par,
+                                      AppCtx *user,
+                                      ParticleManager &manager)
+{
+// Store OldStep Kinematic quantites as curent
+PetscFunctionBegin;
+PetscErrorCode ierr;
+
+pair<OutEdgeIterator,OutEdgeIterator> its = out_edges(manager.myTaskVertex,manager.graph);
+for(auto it=its.first; it != its.second; ++it){
+  Edge edge = *it;
+  Vertex v = target(edge,manager.graph);
+  ParticleInfo info = get(info_property,v);
+  FieldData fd = get(fd_property,v);
+  if(!info.isTask && fd.Boundary==0){
+    fd.Inside = 0;
+    for(PetscInt j = 0 ; j < user->iga->dim ; j++){
+
+      if(fd.material!=0){
+        info.currentCoord[j] = info.tempCoord[j] + fd.totalPhysicalDisplacement[j] - fd.totalPhysicalDisplacementOldStep[j];
+      }
+
+      if(fd.material==0){
+        fd.computed_currentCoord[j] = fd.computed_tempCoord[j] + fd.totalPhysicalDisplacement[j] - fd.totalPhysicalDisplacementOldStep[j];
+       // info.currentCoord[0] = fd.computed_currentCoord[0];
+       // info.currentCoord[1] = fd.computed_currentCoord[1];
+      }
+
+    }
+
+    //Check if particles are still inside the domain
+    if ((info.currentCoord[0] >= 0.0) && (info.currentCoord[0] <= user->Lx)){
+      if ((info.currentCoord[1] >= 0.0) && (info.currentCoord[1] <= user->Ly)){
+        if ((info.currentCoord[2] >= 0.0) && (info.currentCoord[2] <= user->Lz)){
+          fd.Inside = 1;
+        }
+      }
+    }
+
+  }
+  put(fd_property,v,fd);
+  put(info_property,v,info);
+}
+  PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "TSUpdateStage_GeneralizedAlpha"
 static PetscErrorCode TSUpdateStage_GeneralizedAlpha(AppCtx *user,PARAMETERS *par,Vec dA)
 {
@@ -4628,14 +4936,13 @@ PetscErrorCode computePenaltyOnSolid(PARAMETERS *par,
     if(fd.material==0 && !info.isTask){
       for(i=0; i<user->iga->dim; i++){
         velDiff[i] = -fd.interpolatedVelocity[i] + fd.totalPhysicalVelocity[i];
-        // if(i==2){
-        //   velDiff[i] = -fd.interpolatedVelocity[i]; // The plate cannot move in the z-direction on this domain.
-        // }
       }
 
     for(i=0; i<user->iga->dim; i++){
       if(PETSC_TRUE){
-        fd.residual[i] += fd.penaltyParameter * (velDiff[0]*fd.normal[0] + velDiff[1]*fd.normal[1] + velDiff[2]*fd.normal[2])*fd.normal[i];
+        fd.residual[i] += fd.penaltyParameter *
+        (velDiff[0]*fd.normal[0] + velDiff[1]*fd.normal[1] + velDiff[2]*fd.normal[2])*
+        fd.normal[i];
       }
       else{
         fd.residual[i] = fd.penaltyParameter * velDiff[i];
@@ -4645,6 +4952,31 @@ PetscErrorCode computePenaltyOnSolid(PARAMETERS *par,
   put(fd_property,v,fd);
 }
 
+  PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "computeAccelerationIncrementPD"
+PetscErrorCode computeAccelerationIncrementPD(PARAMETERS *par,
+                                     AppCtx *user,
+                                     ParticleManager &manager)
+{
+  PetscFunctionBegin;
+  PetscErrorCode ierr;
+
+  pair<OutEdgeIterator,OutEdgeIterator> its = out_edges(manager.myTaskVertex,manager.graph);
+  for(auto it=its.first; it != its.second; ++it){
+    Edge edge = *it;
+    Vertex v = target(edge,manager.graph);
+    ParticleInfo info = get(info_property,v);
+    FieldData fd = get(fd_property,v);
+
+    if(fd.material==0 && !info.isTask){
+      for(PetscInt j = 0 ; j < user->iga->dim ; j++){
+      fd.AccelerationIncrement[j] = - fd.residual[j]/par->density;}
+    }
+  put(fd_property,v,fd);
+}
   PetscFunctionReturn(0);
 }
 
@@ -4695,9 +5027,6 @@ PetscErrorCode computePenaltyOnFluid(PARAMETERS *par,
 
     for(i=0; i<dim; i++){
       velDiff[i] = fd.interpolatedVelocity[i] - fd.totalPhysicalVelocity[i];
-      // if(i==2){
-      //   velDiff[i] = fd.interpolatedVelocity[i]; // The plate cannot move in the z-direction on this domain.
-      // }
     }
 
     for (a=0;a<user->nen;a++){
@@ -4707,7 +5036,7 @@ PetscErrorCode computePenaltyOnFluid(PARAMETERS *par,
 
         value = fd.penaltyParameter
          * (prb->shape[0][a]
-         * (velDiff[0]*fd.normal[0] + velDiff[1]*fd.normal[1] + velDiff[2]*fd.normal[2])*fd.normal[i])
+         * (velDiff[0]*fd.normal[0] + velDiff[1]*fd.normal[1] + velDiff[2]*fd.normal[2])*fd.normal[i]) //(v dot n)n
          * fd.nodalVolume;
 
         ierr = VecSetValueLocal(vecRes,GlobalID*user->iga->dof+i+1,value,ADD_VALUES);CHKERRQ(ierr);
@@ -4772,6 +5101,150 @@ PetscErrorCode getInterpolatedVelocity(PARAMETERS *par,
 }
 
 ////////////////////////////////////////////////////////////
+
+//// Boundary Condition Manager ////////////////
+#undef __FUNCT__
+#define __FUNCT__ "applyBoundaryConditions"
+PetscErrorCode applyBoundaryConditions(AppCtx *user,
+                                       Vec Res,
+                                       Mat A0)
+{
+  PetscFunctionBegin;
+  PetscErrorCode ierr;
+  PetscInt m,l,k;
+
+  IGA iga = user->iga;
+
+  PetscInt dof = iga->dof;
+  PetscInt dim = iga->dim;
+
+  PetscScalar bc_rho[5]={0.0};
+  bc_rho[0]=1.0;
+  PetscScalar bc_ux[5]={0.0};
+  bc_ux[1]=1.0;
+  PetscScalar bc_uy[5]={0.0};
+  bc_uy[2]=1.0;
+  PetscScalar bc_uz[5]={0.0};
+  bc_uz[3]=1.0;
+  PetscScalar bc_temp[5]={0.0};
+  bc_temp[4]=1.0;
+
+  //// Apply Boundary Conditions through A0 & Res////
+  PetscReal h_x = user->Lx/user->iga->elem_sizes[0];
+  PetscReal h_f = user->horizon/3.0;
+  PetscReal XX,YY,ZZ;
+  PetscReal offset = 0.5*(0.305-0.5);
+  PetscInt nodesX  = iga->geom_lwidth[0], nodesY  = iga->geom_lwidth[1], nodesZ  = iga->geom_lwidth[2];
+  PetscInt gnodesX = iga->geom_gwidth[0], gnodesY = iga->geom_gwidth[1];
+  for(m=0;m<nodesZ;m++) {
+      for(l=0;l<nodesY;l++) {
+          for(k=0;k<nodesX;k++) {
+
+             XX = iga->geometryX[(m*gnodesX*gnodesY + l*gnodesX+k)*dim]+offset;
+             YY = iga->geometryX[(m*gnodesX*gnodesY + l*gnodesX+k)*dim+1]+offset;
+             ZZ = iga->geometryX[(m*gnodesX*gnodesY + l*gnodesX+k)*dim+2];
+
+           //Reflective boundaries BC
+           if((iga->geometryX[(m*gnodesX*gnodesY + l*gnodesX+k)*dim] <= 0.00001+user->spacing/2.0) || (iga->geometryX[(m*gnodesX*gnodesY + l*gnodesX+k)*dim] >= user->Lx-0.00001-user->spacing/2.0)) {
+             PetscInt index = (m*gnodesX*gnodesY + l*gnodesX+ k)*dof+1;
+             PetscInt index_array[5]={0};
+             index_array[0]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof;
+             index_array[1]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+1;
+             index_array[2]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+2;
+             index_array[3]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+3;
+             index_array[4]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+4;
+             MatSetValuesLocal(A0,1,&index,5,index_array,bc_ux,INSERT_VALUES);CHKERRQ(ierr);
+             MatSetValuesLocal(A0,5,index_array,1,&index,bc_ux,INSERT_VALUES);CHKERRQ(ierr);
+             VecSetValueLocal(Res,index,0.0,INSERT_VALUES);CHKERRQ(ierr);
+           }
+
+           if((iga->geometryX[(m*gnodesX*gnodesY + l*gnodesX+k)*dim+1] <=0.00001+user->spacing/2.0) || (iga->geometryX[(m*gnodesX*gnodesY + l*gnodesX+k)*dim+1] >= user->Ly-0.00001-user->spacing/2.0)) {
+             PetscInt index = (m*gnodesX*gnodesY + l*gnodesX+ k)*dof+2;
+             PetscInt index_array[5]={0};
+             index_array[0]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof;
+             index_array[1]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+1;
+             index_array[2]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+2;
+             index_array[3]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+3;
+             index_array[4]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+4;
+             MatSetValuesLocal(A0,1,&index,5,index_array,bc_uy,INSERT_VALUES);CHKERRQ(ierr);
+             MatSetValuesLocal(A0,5,index_array,1,&index,bc_uy,INSERT_VALUES);CHKERRQ(ierr);
+             VecSetValueLocal(Res,index,0.0,INSERT_VALUES);CHKERRQ(ierr);
+           }
+
+           if(/*(iga->geometryX[(m*gnodesX*gnodesY + l*gnodesX+k)*dim+2] <=0.00001+user->spacing/2.0) ||*/ (iga->geometryX[(m*gnodesX*gnodesY + l*gnodesX+k)*dim+2] >= user->Lz-0.00001-user->spacing/2.0)) {
+             PetscInt index = (m*gnodesX*gnodesY + l*gnodesX+ k)*dof+3;
+             PetscInt index_array[5]={0};
+             index_array[0]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof;
+             index_array[1]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+1;
+             index_array[2]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+2;
+             index_array[3]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+3;
+             index_array[4]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+4;
+             MatSetValuesLocal(A0,1,&index,5,index_array,bc_uz,INSERT_VALUES);CHKERRQ(ierr);
+             MatSetValuesLocal(A0,5,index_array,1,&index,bc_uz,INSERT_VALUES);CHKERRQ(ierr);
+             VecSetValueLocal(Res,index,0.0,INSERT_VALUES);CHKERRQ(ierr);
+           }
+           // End boundary reflection
+
+           // Boundary conditions on plane occupied initially by plate
+            if(ZZ<0.000001){
+            // U_z = 0 on all of the boundary
+            // U_x*n <= 0
+            // u_y*n <= 0 (should emerge naturally)
+            //Clamped BC
+            if(abs(XX)<=(0.305-0.254)/2.0 || abs(0.305-XX)<=(0.305-0.254)/2.0 || abs(YY)<=(0.305-0.254)/2.0 || abs(0.305-YY)<=(0.305-0.254)/2.0) {
+             PetscInt index = (m*gnodesX*gnodesY + l*gnodesX+ k)*dof+3;
+             PetscInt index_array[5]={0};
+             index_array[0]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof;
+             index_array[1]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+1;
+             index_array[2]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+2;
+             index_array[3]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+3;
+             index_array[4]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+4;
+             MatSetValuesLocal(A0,1,&index,5,index_array,bc_uz,INSERT_VALUES);CHKERRQ(ierr);
+             MatSetValuesLocal(A0,5,index_array,1,&index,bc_uz,INSERT_VALUES);CHKERRQ(ierr);
+             VecSetValueLocal(Res,index,0.0,INSERT_VALUES);CHKERRQ(ierr);
+           }
+
+           //Simply supported
+           if(XX<=h_f*0.5 || XX >= 0.305-h_f*0.5 || YY<=h_f*0.5 ||  YY >= 0.305-h_f*0.5 ) {
+            PetscInt index = (m*gnodesX*gnodesY + l*gnodesX+ k)*dof+3;
+            PetscInt index_array[5]={0};
+            index_array[0]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof;
+            index_array[1]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+1;
+            index_array[2]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+2;
+            index_array[3]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+3;
+            index_array[4]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+4;
+            MatSetValuesLocal(A0,1,&index,5,index_array,bc_uz,INSERT_VALUES);CHKERRQ(ierr);
+            MatSetValuesLocal(A0,5,index_array,1,&index,bc_uz,INSERT_VALUES);CHKERRQ(ierr);
+            VecSetValueLocal(Res,index,0.0,INSERT_VALUES);CHKERRQ(ierr);
+          }
+        }
+
+           //Isothermal condition (Necessary for water-JWL):
+            if(PETSC_TRUE) {
+             PetscInt index = (m*gnodesX*gnodesY + l*gnodesX+ k)*dof+4;
+             PetscInt index_array[5]={0};
+             index_array[0]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof;
+             index_array[1]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+1;
+             index_array[2]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+2;
+             index_array[3]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+3;
+             index_array[4]=(m*gnodesX*gnodesY + l*gnodesX+ k)*dof+4;
+             MatSetValuesLocal(A0,1,&index,5,index_array,bc_temp,INSERT_VALUES);CHKERRQ(ierr);
+             MatSetValuesLocal(A0,5,index_array,1,&index,bc_temp,INSERT_VALUES);CHKERRQ(ierr);
+             VecSetValueLocal(Res,index,0.0,INSERT_VALUES);CHKERRQ(ierr);
+           }
+          }
+      }
+  }
+  ierr = MatAssemblyBegin(A0,MAT_FINAL_ASSEMBLY);CHKERRQ(ierr);
+  ierr = MatAssemblyEnd(A0,MAT_FINAL_ASSEMBLY);CHKERRQ(ierr);
+  ierr = VecAssemblyBegin(Res);CHKERRQ(ierr);
+  ierr = VecAssemblyEnd(Res);CHKERRQ(ierr);
+  //// End Boundary conditions ////////////////////
+
+  PetscFunctionReturn(0);
+}
+////////////////////////////////////////////////////////////
+
 
 
 //########## Main Function #############//
@@ -4839,7 +5312,7 @@ int main(int argc, char *argv[]) {
   ParticleManager manager = ParticleManager();
 
   // seed random number generator based on MPI rank
-  //srand(manager.myRank);
+  srand(manager.myRank);
 
   par->initialTime  	   = 0.0;
   par->finalTime    	   = 4.0e-3;
@@ -4847,14 +5320,14 @@ int main(int argc, char *argv[]) {
   par->currentTime  	   = par->initialTime;
   par->gamma			       = 0.5;
   par->stepNumber        = 0;
-  par->FreqResults       = 10;
+  par->FreqResults       = 20;
   par->densityRDX        = 1770.0;
-  par->density           = 1420.0;//7.8e3; //Properties of composite plate
-  par->youngModulus      = 78.24e9;//200e9;
-  par->poissonRatio      = 0.0385;//0.3;
+  par->density           = 1420.0;
+  par->youngModulus      = 78.24e9;
+  par->poissonRatio      = 0.0385;
 
   // Parameters for Penalty based approach
-  par->penaltyConstant = 6.0;
+  par->penaltyConstant = 9.0;
   par->DamageModeling = PETSC_FALSE;
   par->damageCriticalStress = 8.0e10;
   par->damageCriticalEpsilonPlastic = 0.2;
@@ -4862,28 +5335,31 @@ int main(int argc, char *argv[]) {
 
   user.TimeRestart       = 0;
   user.StepRestart       = 0;
-  user.FreqRestarts      = 100;
+  user.FreqRestarts      = 1;
 
   user.spacing  = 0.0000000000000000;
   user.Lx       = 0.5+user.spacing;
   user.Ly       = 0.5+user.spacing;
   user.Lz       = 0.5+user.spacing;
-  user.horizon  = 3.0*0.305/59.0;
+  user.horizon  = 3.0*0.305/19.0;
 
   user.PDInitialTime = par->initialTime;
   user.OutputRestart = par->finalTime;
   PetscBool set;
+
   ierr = PetscOptionsBegin(PETSC_COMM_WORLD,"","Blast-PD Options 3D","IGA");CHKERRQ(ierr);
+
   ierr = PetscOptionsInt("-StepRestart","Step of the initial solution from file",__FILE__,user.StepRestart,&user.StepRestart,&set);CHKERRQ(ierr);
   if(set){
     user.PDInitialTime = user.StepRestart*par->timeStep;
     set = PETSC_FALSE;
   }
-  ierr = PetscOptionsReal("-OutputRestart"," of restart cycles before PD should output its restart file",__FILE__,user.OutputRestart,&user.OutputRestart,&set);CHKERRQ(ierr);
+  ierr = PetscOptionsReal("-OutputRestart","Number of restart cycles before PD should output its restart file",__FILE__,user.OutputRestart,&user.OutputRestart,&set);CHKERRQ(ierr);
   if(set){
     user.OutputRestart = user.StepRestart*par->timeStep + user.OutputRestart*par->timeStep*user.FreqRestarts;
     set = PETSC_FALSE;
   }
+
   ierr = PetscOptionsEnd();CHKERRQ(ierr);
   if (C == PETSC_DECIDE) C = p-1;
 
@@ -5251,23 +5727,17 @@ int main(int argc, char *argv[]) {
   outputParams.set("Output File Type", "ExodusII");
   outputParams.set("NumProc", mpi_size);
 
-  // temporary fix for exodus output after restart
+  // Fix for exodus output after restart (currently cannot write onto the same Exodus File)
   string exodusName = to_string(user.StepRestart) + "AirBackedPlate";
-
-  //outputParams.set("Output Filename", "AirBackedPlate1");
   outputParams.set("Output Filename", exodusName);
-  outputParams.set("Initial Output Step", 0);
+  outputParams.set("Initial Output Step",0);// par->stepNumber);
   outputParams.set("Final Output Step", RestartStep);
   outputParams.set("Output Frequency", 1);
   outputParams.sublist("Output Variables");
-  //outputParams.sublist("Output Variables").set("Volume", true);
   outputParams.sublist("Output Variables").set("Displacement", true);
   outputParams.sublist("Output Variables").set("Velocity", true);
   outputParams.sublist("Output Variables").set("Force", true);
-  //outputParams.sublist("Output Variables").set("Velocity_Gradient", true);
   outputParams.sublist("Output Variables").set("Green_Lagrange_Strain", true);
-  //outputParams.sublist("Output Variables").set("Left_Stretch_Tensor", true);
-  //outputParams.sublist("Output Variables").set("Rotation_Tensor", true);
   outputParams.sublist("Output Variables").set("Cauchy_Stress", true);
   outputParams.sublist("Output Variables").set("Proc_Num", true);
 
@@ -5275,17 +5745,18 @@ int main(int argc, char *argv[]) {
   restartParams.set("Restart", PETSC_TRUE);
   bool restart = peridigmParams->isParameter("Restart");
 
+  MPI_Barrier(PETSC_COMM_WORLD);
   PetscPrintf(PETSC_COMM_WORLD, "\n#########################################################\n");
-  PetscPrintf(PETSC_COMM_WORLD, "***Peridigm Restarts Active: %d ; Dumping Restarts at: %d***\n", restart, RestartStep);
+  PetscPrintf(PETSC_COMM_WORLD, "***Peridigm Restarts Active: %d ; Will Write Restarts at: %d and Exit!***\n", restart, RestartStep);
   PetscPrintf(PETSC_COMM_WORLD, "***This run will need to progress at least %d Steps!***\n", RestartStep-par->stepNumber);
   PetscPrintf(PETSC_COMM_WORLD, "#########################################################\n\n");
 
-  MPI_Barrier(MPI_COMM_WORLD);
+  MPI_Barrier(PETSC_COMM_WORLD);
   PeridigmNS::HorizonManager::self().loadHorizonInformationFromBlockParameters(blockParameterList);
   Teuchos::RCP<PeridigmNS::Discretization> textDiscretization(new PeridigmNS::TextFileDiscretization(epetraComm, discParams));
   Teuchos::RCP<PeridigmNS::Peridigm> peridigm(new PeridigmNS::Peridigm(PETSC_COMM_WORLD, peridigmParams, textDiscretization));
   PetscPrintf(PETSC_COMM_WORLD, "Done Initializing Discretization & PD Object\n\n");
-  MPI_Barrier(MPI_COMM_WORLD);
+  MPI_Barrier(PETSC_COMM_WORLD);
 
   Teuchos::RCP<Epetra_Vector> currentPosition = peridigm->getY();
   int num_PD_nodes_onRank = currentPosition->MyLength()/3.0;
@@ -5304,75 +5775,13 @@ int main(int argc, char *argv[]) {
  }
 
   peridigm->setTimeStep(par->timeStep);
-
-  if (par->stepNumber == 0){
-  // Initialize tensors associated with all foreground particles; These quantities are not set inside
-  // "Input"
-
-    BGL_FORALL_VERTICES(v,manager.graph,Graph){
-      FieldData fd = get(fd_property,v);
-      ParticleInfo info = get(info_property,v);
-      if(!info.isTask){
-
-        fd.Inside = 1;
-        fd.Boundary = 0;
-        fd.damage = 0;
-        fd.damage0 = 0;
-
-      for (j=0;j<3;j++){
-        fd.totalPhysicalAcceleration[j] = 0.0;
-        fd.totalPhysicalDisplacement[j] = 0.0;
-        fd.totalPhysicalVelocity[j] = 0.0;
-
-        fd.totalPhysicalDisplacementOldStep[j] = 0.0;
-        fd.totalPhysicalVelocityOldStep[j] = 0.0;
-        fd.totalPhysicalAccelerationOldStep[j] = 0.0;
-
-        fd.totalPhysicalDisplacementOldIteration[j] = 0.0;
-        fd.totalPhysicalVelocityOldIteration[j] = 0.0;
-        fd.totalPhysicalAccelerationOldIteration[j] = 0.0;
-
-        fd.AccelerationIncrement[j] = 0.0;
-        fd.interpolatedVelocity[j] = 0.0;
-
-        fd.referenceCoord[j] = fd.currentCoord[j];
-
-      }
-
-      for(j = 0 ; j < 9 ; j++){
-      fd.currentDeformationGradient[j] = 0.0;
-      fd.alphaDeformationGradient[j] = 0.0;
-      fd.DeformationGradientOld[j] = 0.0;
-
-      fd.velocityGradient[j] = 0.0;
-      }
-
-      fd.DeformationGradientOld[0] = 1.0;
-      fd.DeformationGradientOld[4] = 1.0;
-      fd.DeformationGradientOld[8] = 1.0;
-
-      fd.alphaDeformationGradient[0] = 1.0;
-      fd.alphaDeformationGradient[4] = 1.0;
-      fd.alphaDeformationGradient[8] = 1.0;
-
-      fd.currentDeformationGradient[0] = 1.0;
-      fd.currentDeformationGradient[4] = 1.0;
-      fd.currentDeformationGradient[8] = 1.0;
-
-      fd.determinantAlphaDeformationGradient = 1.0;
-      fd.determinantCurrentDeformationGradient = 1.0;
-
-      put(fd_property,v,fd);
-    }
-  }
-}
+  ierr = initializeFieldData(par, &user, manager);CHKERRQ(ierr);
   manager.sync();
 
   const PetscScalar *arrayU;
   const PetscScalar *arrayV;
   Vec               localV;
   Vec               localU;
-
 
   // Malloc needs to be outside of any loops
   ierr = PetscMalloc1(num_PD_nodes*3,&user.GlobalForces);CHKERRQ(ierr);
@@ -5399,95 +5808,25 @@ int main(int argc, char *argv[]) {
     par->currentTime+=par->timeStep;
     user.stepNumber  =par->stepNumber;
 
-  if(par->stepNumber==0){
-    peridigm->writePeridigmSubModel(0);
-  }
-    //Fluid predictor
+    if(par->stepNumber==0){
+      peridigm->writePeridigmSubModel(0);
+    }
+
+    // Predict Stage //
     ierr = TSPredictStage_GeneralizedAlpha(&user,par);CHKERRQ(ierr);
-
-   //Apply lagrangian update (newmark formulas) to foreground
-   BGL_FORALL_VERTICES(v,manager.graph,Graph){
-    FieldData fd = get(fd_property,v);
-    ParticleInfo info = get(info_property,v);
-     if(!info.isTask){
-       if (fd.Boundary == 0){
-         fd.totalPhysicalVelocityOldStep[0] = fd.totalPhysicalVelocity[0];
-         fd.totalPhysicalVelocityOldStep[1] = fd.totalPhysicalVelocity[1];
-         fd.totalPhysicalVelocityOldStep[2] = fd.totalPhysicalVelocity[2];
-         fd.totalPhysicalAccelerationOldStep[0] = fd.totalPhysicalAcceleration[0];
-         fd.totalPhysicalAccelerationOldStep[1] = fd.totalPhysicalAcceleration[1];
-         fd.totalPhysicalAccelerationOldStep[2] = fd.totalPhysicalAcceleration[2];
-         fd.totalPhysicalDisplacementOldStep[0] = fd.totalPhysicalDisplacement[0];
-         fd.totalPhysicalDisplacementOldStep[1] = fd.totalPhysicalDisplacement[1];
-         fd.totalPhysicalDisplacementOldStep[2] = fd.totalPhysicalDisplacement[2];
-
-         fd.totalPhysicalAcceleration[0] = (user.Gamma - 1)/user.Gamma*fd.totalPhysicalAcceleration[0];
-         fd.totalPhysicalAcceleration[1] = (user.Gamma - 1)/user.Gamma*fd.totalPhysicalAcceleration[1];
-         fd.totalPhysicalAcceleration[2] = (user.Gamma - 1)/user.Gamma*fd.totalPhysicalAcceleration[2];
-
-         fd.totalPhysicalDisplacement[0] = fd.totalPhysicalDisplacementOldStep[0] + par->timeStep*fd.totalPhysicalVelocityOldStep[0];
-         fd.totalPhysicalDisplacement[0] += par->timeStep*par->timeStep/2*((1-2*user.Beta)*fd.totalPhysicalAccelerationOldStep[0]+2*user.Beta*fd.totalPhysicalAcceleration[0]);
-
-         fd.totalPhysicalDisplacement[1] = fd.totalPhysicalDisplacementOldStep[1] + par->timeStep*fd.totalPhysicalVelocityOldStep[1];
-         fd.totalPhysicalDisplacement[1] += par->timeStep*par->timeStep/2*((1-2*user.Beta)*fd.totalPhysicalAccelerationOldStep[1]+2*user.Beta*fd.totalPhysicalAcceleration[1]);
-
-         fd.totalPhysicalDisplacement[2] = fd.totalPhysicalDisplacementOldStep[2] + par->timeStep*fd.totalPhysicalVelocityOldStep[2];
-         fd.totalPhysicalDisplacement[2] += par->timeStep*par->timeStep/2*((1-2*user.Beta)*fd.totalPhysicalAccelerationOldStep[2]+2*user.Beta*fd.totalPhysicalAcceleration[2]);
-
-       }else{
-         fd.totalPhysicalVelocityOldStep[0] = 0.0;
-         fd.totalPhysicalVelocityOldStep[1] = 0.0;
-         fd.totalPhysicalVelocityOldStep[2] = 0.0;
-         fd.totalPhysicalAccelerationOldStep[0] = 0.0;
-         fd.totalPhysicalAccelerationOldStep[1] = 0.0;
-         fd.totalPhysicalAccelerationOldStep[2] = 0.0;
-         fd.totalPhysicalDisplacementOldStep[0] = 0.0;
-         fd.totalPhysicalDisplacementOldStep[1] = 0.0;
-         fd.totalPhysicalDisplacementOldStep[2] = 0.0;
-
-         fd.totalPhysicalAcceleration[0] = 0.0;
-         fd.totalPhysicalAcceleration[1] = 0.0;
-         fd.totalPhysicalAcceleration[2] = 0.0;
-         fd.totalPhysicalDisplacement[0] = 0.0;
-         fd.totalPhysicalDisplacement[1] = 0.0;
-         fd.totalPhysicalDisplacement[2] = 0.0;
-       }
-
-       if (fd.material == 0){
-           fd.DeformationGradientOld[0] = fd.currentDeformationGradient[0];
-           fd.DeformationGradientOld[1] = fd.currentDeformationGradient[1];
-           fd.DeformationGradientOld[2] = fd.currentDeformationGradient[2];
-           fd.DeformationGradientOld[3] = fd.currentDeformationGradient[3];
-           fd.DeformationGradientOld[4] = fd.currentDeformationGradient[4];
-           fd.DeformationGradientOld[5] = fd.currentDeformationGradient[5];
-           fd.DeformationGradientOld[6] = fd.currentDeformationGradient[6];
-           fd.DeformationGradientOld[7] = fd.currentDeformationGradient[7];
-           fd.DeformationGradientOld[8] = fd.currentDeformationGradient[8];
-       }
-       put(fd_property,v,fd);
-     }
-   }
+    ierr = storeOldStep(par, &user, manager);CHKERRQ(ierr);
+    manager.sync();
+    ierr = TSpredictStage_GeneralizedAlpha_FG(par, &user, manager);CHKERRQ(ierr);
+    manager.sync();
+    ierr = storeTempCoord(par, &user, manager);CHKERRQ(ierr);
+    manager.sync();
+    //////////////////
 
    PetscInt i,j,k,m,l, it;
    PetscInt dof = iga->dof;
    PetscInt dim = iga->dim;
-
    Mat A0;
    ierr = IGACreateMat(iga,&A0);CHKERRQ(ierr);
-
-   BGL_FORALL_VERTICES(v,manager.graph,Graph){
-   ParticleInfo info = get(info_property,v);
-   FieldData fd = get(fd_property,v);
-    if(!info.isTask){
-      for(j=0;j<3;j++){
-        info.tempCoord[j] = info.currentCoord[j];
-        fd.computed_tempCoord[j] = fd.computed_currentCoord[j];
-      }
-      put(info_property,v,info);
-      put(fd_property, v, fd);
-    }
-    }
-   manager.sync();
 
     for (it=0; it<user.max_its ; it++) {
        PetscPrintf(PETSC_COMM_WORLD,":::::::::::::::::::::::::::::::::\n");
@@ -5530,91 +5869,14 @@ int main(int argc, char *argv[]) {
 
       ierr = IGAGetLocalVecArray(iga,user.Va,&localU,&arrayU);CHKERRQ(ierr);
       ierr = IGAGetLocalVecArray(iga,user.Aa,&localV,&arrayV);CHKERRQ(ierr);
+
+      ierr = storeOldIteration(par, &user, manager);CHKERRQ(ierr);
       manager.sync();
-
-       BGL_FORALL_VERTICES(v,manager.graph,Graph){
-       FieldData fd = get(fd_property,v);
-       ParticleInfo info = get(info_property,v);
-        if(!info.isTask){
-          fd.Inside = 0;
-          put(fd_property,v,fd);
-        }
-       }
-       manager.sync();
-       BGL_FORALL_VERTICES(v,manager.graph,Graph){
-       FieldData fd = get(fd_property,v);
-       ParticleInfo info = get(info_property,v);
-        if(!info.isTask){
-         if (fd.Boundary == 0){
-           fd.totalPhysicalVelocityOldIteration[0] = fd.totalPhysicalVelocity[0];
-           fd.totalPhysicalVelocityOldIteration[1] = fd.totalPhysicalVelocity[1];
-           fd.totalPhysicalVelocityOldIteration[2] = fd.totalPhysicalVelocity[2];
-           fd.totalPhysicalAccelerationOldIteration[0] = fd.totalPhysicalAcceleration[0];
-           fd.totalPhysicalAccelerationOldIteration[1] = fd.totalPhysicalAcceleration[1];
-           fd.totalPhysicalAccelerationOldIteration[2] = fd.totalPhysicalAcceleration[2];
-           fd.totalPhysicalDisplacementOldIteration[0] = fd.totalPhysicalDisplacement[0];
-           fd.totalPhysicalDisplacementOldIteration[1] = fd.totalPhysicalDisplacement[1];
-           fd.totalPhysicalDisplacementOldIteration[2] = fd.totalPhysicalDisplacement[2];
-
-         fd.totalPhysicalVelocity[0] = fd.totalPhysicalVelocityOldStep[0] + Alpha_f*(fd.totalPhysicalVelocity[0] - fd.totalPhysicalVelocityOldStep[0]);
-         fd.totalPhysicalDisplacement[0] = fd.totalPhysicalDisplacementOldStep[0] + Alpha_f*(fd.totalPhysicalDisplacement[0] - fd.totalPhysicalDisplacementOldStep[0]);
-         fd.totalPhysicalVelocity[1] = fd.totalPhysicalVelocityOldStep[1] + Alpha_f*(fd.totalPhysicalVelocity[1] - fd.totalPhysicalVelocityOldStep[1]);
-         fd.totalPhysicalDisplacement[1] = fd.totalPhysicalDisplacementOldStep[1] + Alpha_f*(fd.totalPhysicalDisplacement[1] - fd.totalPhysicalDisplacementOldStep[1]);
-         fd.totalPhysicalVelocity[2] = fd.totalPhysicalVelocityOldStep[2] + Alpha_f*(fd.totalPhysicalVelocity[2] - fd.totalPhysicalVelocityOldStep[2]);
-         fd.totalPhysicalDisplacement[2] = fd.totalPhysicalDisplacementOldStep[2] + Alpha_f*(fd.totalPhysicalDisplacement[2] - fd.totalPhysicalDisplacementOldStep[2]);
-           if(fd.material==0){
-             fd.totalPhysicalAcceleration[0] = fd.totalPhysicalAccelerationOldStep[0] + Alpha_m*(fd.totalPhysicalAcceleration[0] - fd.totalPhysicalAccelerationOldStep[0]);
-             fd.totalPhysicalAcceleration[1] = fd.totalPhysicalAccelerationOldStep[1] + Alpha_m*(fd.totalPhysicalAcceleration[1] - fd.totalPhysicalAccelerationOldStep[1]);
-             fd.totalPhysicalAcceleration[2] = fd.totalPhysicalAccelerationOldStep[2] + Alpha_m*(fd.totalPhysicalAcceleration[2] - fd.totalPhysicalAccelerationOldStep[2]);
-           }
-         }else{
-           fd.totalPhysicalVelocityOldIteration[0] = 0.0;
-           fd.totalPhysicalVelocityOldIteration[1] =0.0;
-           fd.totalPhysicalVelocityOldIteration[2] =0.0;
-           fd.totalPhysicalAccelerationOldIteration[0] = 0.0;
-           fd.totalPhysicalAccelerationOldIteration[1] = 0.0;
-           fd.totalPhysicalAccelerationOldIteration[2] = 0.0;
-           fd.totalPhysicalDisplacementOldIteration[0] =0.0;
-           fd.totalPhysicalDisplacementOldIteration[1] =0.0;
-           fd.totalPhysicalDisplacementOldIteration[2] =0.0;
-
-           fd.totalPhysicalVelocity[0] = 0.0;
-           fd.totalPhysicalVelocity[1] =0.0;
-           fd.totalPhysicalVelocity[2] =0.0;
-           fd.totalPhysicalDisplacement[0] = 0.0;
-           fd.totalPhysicalDisplacement[1] = 0.0;
-           fd.totalPhysicalDisplacement[2] = 0.0;
-         }
-           for(j=0;j<3;j++){
-             if(fd.material!=0){
-             info.currentCoord[j] = info.tempCoord[j] + fd.totalPhysicalDisplacement[j] - fd.totalPhysicalDisplacementOldStep[j];
-           }
-           if(fd.material==0){
-             fd.computed_currentCoord[j] = fd.computed_tempCoord[j] + fd.totalPhysicalDisplacement[j] - fd.totalPhysicalDisplacementOldStep[j];
-            // info.currentCoord[0] = fd.computed_currentCoord[0];
-            // info.currentCoord[1] = fd.computed_currentCoord[1];
-           }
-            }
-          put(info_property,v,info);
-          put(fd_property,v,fd);
-        }
-        }
-       manager.sync();
-       manager.connectVertsToTasks(true,&user);
-       manager.sync();
-
-       BGL_FORALL_VERTICES(v,manager.graph,Graph){
-       FieldData fd = get(fd_property,v);
-       ParticleInfo info = get(info_property,v);
-      if(!info.isTask){
-        if ((info.currentCoord[0] >= 0.0) && (info.currentCoord[0] <= user.Lx)){
-        if ((info.currentCoord[1] >= 0.0) && (info.currentCoord[1] <= user.Ly)){
-        if ((info.currentCoord[2] >= 0.0) && (info.currentCoord[2] <= user.Lz)){
-        fd.Inside = 1;
-        }}}
-      }
-        put(fd_property,v,fd);
-      }
+      ierr = TSAlphaLevels_GeneralizedAlpha_FG(par, &user, manager);CHKERRQ(ierr);
+      manager.sync();
+      ierr =  updateCurrentCoordinate_FG(par, &user, manager);CHKERRQ(ierr);
+      manager.sync();
+      manager.connectVertsToTasks(true,&user);
       manager.sync();
 
       //// Handoff Kinematic quantites (Velocity, displacement and current coordinate) (IGA->Peridigm) ////
@@ -5662,10 +5924,9 @@ int main(int argc, char *argv[]) {
       MPI_Barrier(PETSC_COMM_WORLD);
       ///////////////////////////////////////
 
-       //// Volume Update for PD Particles ////
+       //// Volume Update for Foreground ////
        ierr = updateVolumeAndDensity(par,&user,manager);CHKERRQ(ierr);
        manager.sync();
-       //// Volume Update for Immersed-Fluid Particles ////
        ierr = ComputeCurrentExplosiveVolume(&user, par, manager);CHKERRQ(ierr);
        manager.sync();
       ////////////////////////////////////////
@@ -5684,7 +5945,6 @@ int main(int argc, char *argv[]) {
   peridigm->computeInternalForce();
 
   // Get RCPs to important data fields ON THIS PROCESSOR
-
   Teuchos::RCP<Epetra_Vector> normal = peridigm->getNormal();
   Teuchos::RCP<Epetra_Vector> force = peridigm->getForce();
   Teuchos::RCP<Epetra_Vector> Volume = peridigm->getVolume();
@@ -5708,7 +5968,6 @@ int main(int argc, char *argv[]) {
       user.NORMAL[GID[i]*3+j]         = (*normal)[i*3+j];
       user.VOLUME[GID[i]]             = (*Volume)[i];
     }
-  //  PetscPrintf(PETSC_COMM_SELF, "Force output=%e %e %e\n", (*force)[i*3+0], (*force)[i*3+1], (*force)[i*3+2]);
   }
 
   ierr = MPI_Allreduce(user.GlobalForces,FORCE,num_PD_nodes*3,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);CHKERRQ(ierr);
@@ -5727,7 +5986,7 @@ int main(int argc, char *argv[]) {
       for(j = 0 ; j < 3 ; j++){
         fd.internalForce[j]  = FORCE[fd.ID_PD*3+j]/fd.nodalVolume; //Convert force back to force density to compute strong solid residual
         fd.normal[j]         = NORMAL[fd.ID_PD*3+j];
-        //fd.nodalVolume       = VOLUME[fd.ID_PD];
+        fd.nodalVolume       = VOLUME[fd.ID_PD];
         fd.bodyForce[j]      = 0.0;
       }
       PetscReal norm = sqrt(fd.normal[0]*fd.normal[0]+fd.normal[1]*fd.normal[1]+fd.normal[2]*fd.normal[2]);
@@ -5780,17 +6039,16 @@ int main(int argc, char *argv[]) {
   manager.sync();
   ///////////////////////////////////////////////////
 
-  double ResNormSolid;
-  VecNorm(ResS,NORM_2,&ResNormSolid);
-  PetscPrintf(PETSC_COMM_WORLD,"Res. Norm Solid = %e\n", ResNormSolid);
   // Assemble Total Residual
-  ierr = VecZeroEntries(Res);CHKERRQ(ierr);
   ierr = VecAYPX(Res,0.0,ResF);CHKERRQ(ierr);
   ierr = VecAYPX(Res,1.0,ResFS);CHKERRQ(ierr);
   ierr = VecAYPX(Res,1.0,ResS);CHKERRQ(ierr);
   ierr = IGARestoreLocalVecArray(iga,user.Va,&localU,&arrayU);CHKERRQ(ierr);
   ierr = IGARestoreLocalVecArray(iga,user.Aa,&localV,&arrayV);CHKERRQ(ierr);
   //////////////////////////
+
+  //// Apply Boundary conditions through A0 & Res and assemble////
+  //ierr = applyBoundaryConditions(&user, Res, A0);CHKERRQ(ierr); //Does not work on TACC
 
   PetscScalar bc_rho[5]={0.0};
   bc_rho[0]=1.0;
@@ -5918,9 +6176,10 @@ int main(int argc, char *argv[]) {
   /////////////////////////////
 
   ///// Check Residul ////////
-  double ResNorm;
+  double ResNormSolid, ResNorm;
+  VecNorm(ResS,NORM_2,&ResNormSolid);
   VecNorm(Res,NORM_2,&ResNorm);
-  PetscPrintf(PETSC_COMM_WORLD,"Res. Norm = %e\n", ResNorm);
+  PetscPrintf(PETSC_COMM_WORLD,"Res. Norm Solid = %e | Res. Norm = %e\n", ResNormSolid, ResNorm);
   if (ResNorm != ResNorm) {
     PetscPrintf(PETSC_COMM_WORLD, "Residual = NaN!\n");
     exit(0);
@@ -5950,91 +6209,28 @@ int main(int argc, char *argv[]) {
   manager.sync();
   /////////////////////////////////////////
 
+  //// Solid Penalty + INERTIA - FORCE //////////////////////
   ierr = computeSolidResidualStrong(par, &user, manager);CHKERRQ(ierr);
   manager.sync();
   ierr = computePenaltyOnSolid(par,&user,manager);CHKERRQ(ierr);
   manager.sync();
+  /////////////////////////////////////////
 
-  ///// Update kinematic quantites on forerground for next iteration //////
-  BGL_FORALL_VERTICES(v,manager.graph,Graph){
-                 FieldData fd = get(fd_property,v);
-                 ParticleInfo info = get(info_property,v);
-                  if(!info.isTask){
-                   if ((fd.Boundary == 0) && (fd.Inside == 1) && (fd.material!=0)){
+  //// Generalized Alpha Update Stage /////
+  ierr = computeAccelerationIncrementPD(par, &user, manager);CHKERRQ(ierr);
+  manager.sync();
+  ierr = PDUpdateStage_GeneralizedAlpha(par, &user, manager);CHKERRQ(ierr);
+  manager.sync();
+  ierr = UpdateStage_GeneralizedAlpha_FG(par, &user, manager);CHKERRQ(ierr);
+  manager.sync();
+  /////////////////////////////////////////
 
-                       fd.AccelerationIncrement[0] = fd.totalPhysicalVelocity[0] - fd.totalPhysicalVelocityOldIteration[0];
-                       fd.AccelerationIncrement[0] /= user.Gamma*par->timeStep;
-
-                       fd.AccelerationIncrement[1] = fd.totalPhysicalVelocity[1] - fd.totalPhysicalVelocityOldIteration[1];
-                       fd.AccelerationIncrement[1] /= user.Gamma*par->timeStep;
-
-                       fd.AccelerationIncrement[2] = fd.totalPhysicalVelocity[2] - fd.totalPhysicalVelocityOldIteration[2];
-                       fd.AccelerationIncrement[2] /= user.Gamma*par->timeStep;
-
-                   }else{
-                    if(fd.material==0){
-                      // Solve independently on the solid domain for the acceleration
-                      fd.AccelerationIncrement[0] = - fd.residual[0]/par->density;
-                      fd.AccelerationIncrement[1] = - fd.residual[1]/par->density;
-                      fd.AccelerationIncrement[2] = - fd.residual[2]/par->density;
-                    }
-                   }
-
-                    fd.totalPhysicalAcceleration[0] = fd.totalPhysicalAccelerationOldIteration[0] + fd.AccelerationIncrement[0];
-                    fd.totalPhysicalAcceleration[1] = fd.totalPhysicalAccelerationOldIteration[1] + fd.AccelerationIncrement[1];
-                    fd.totalPhysicalAcceleration[2] = fd.totalPhysicalAccelerationOldIteration[2] + fd.AccelerationIncrement[2];
-
-                    if(fd.material==0){
-                      fd.totalPhysicalVelocity[0] = fd.totalPhysicalVelocityOldIteration[0] + user.Gamma*par->timeStep*fd.AccelerationIncrement[0];
-                      fd.totalPhysicalVelocity[1] = fd.totalPhysicalVelocityOldIteration[1] + user.Gamma*par->timeStep*fd.AccelerationIncrement[1];
-                      fd.totalPhysicalVelocity[2] = fd.totalPhysicalVelocityOldIteration[2] + user.Gamma*par->timeStep*fd.AccelerationIncrement[2];
-                    }
-                   if (fd.Boundary == 0){
-
-                     fd.totalPhysicalDisplacement[0] = fd.totalPhysicalDisplacementOldIteration[0];
-                     fd.totalPhysicalDisplacement[0] += user.Beta*par->timeStep*par->timeStep*fd.AccelerationIncrement[0];
-
-                      fd.totalPhysicalDisplacement[1] = fd.totalPhysicalDisplacementOldIteration[1];
-                      fd.totalPhysicalDisplacement[1] += user.Beta*par->timeStep*par->timeStep*fd.AccelerationIncrement[1];
-
-                      fd.totalPhysicalDisplacement[2] = fd.totalPhysicalDisplacementOldIteration[2];
-                      fd.totalPhysicalDisplacement[2] += user.Beta*par->timeStep*par->timeStep*fd.AccelerationIncrement[2];
-
-                   }else{
-                     fd.totalPhysicalDisplacement[0] =0.0;
-                     fd.totalPhysicalDisplacement[1] =0.0;
-                     fd.totalPhysicalDisplacement[2] =0.0;
-                   }
-
-
-                  put(fd_property,v,fd);
-
-                  }
-                  }
-          manager.sync();
-
-         BGL_FORALL_VERTICES(v,manager.graph,Graph){
-         FieldData fd = get(fd_property,v);
-         ParticleInfo info = get(info_property,v);
-          if(!info.isTask){
-                for(j=0;j<3;j++){
-                  if(fd.material!=0){
-                    info.currentCoord[j] = info.tempCoord[j] + fd.totalPhysicalDisplacement[j] - fd.totalPhysicalDisplacementOldStep[j] ;
-                }
-                if(fd.material==0){
-                  fd.computed_currentCoord[j] = fd.computed_tempCoord[j] + fd.totalPhysicalDisplacement[j] - fd.totalPhysicalDisplacementOldStep[j] ;
-                //  info.currentCoord[0] = fd.computed_currentCoord[0];
-                //  info.currentCoord[1] = fd.computed_currentCoord[1];
-                }
-              }
-            put(fd_property,v,fd);
-            put(info_property,v,info);
-          }
-         }
-         manager.sync();
-         manager.connectVertsToTasks(true,&user);
-         manager.sync();
-/////////////////////////////////////////////
+  //// Coord Update and reconnect //////////////////////////
+  ierr = updateCurrentCoordinate_FG(par, &user, manager);CHKERRQ(ierr);
+  manager.sync();
+  manager.connectVertsToTasks(true,&user);
+  manager.sync();
+  /////////////////////////////////////////////
 
 //// Update the Displacement, current position, velocity of PD particles to update the force-State ////
 //// These arrays are structured as:  ////
@@ -6095,50 +6291,63 @@ MPI_Barrier(PETSC_COMM_WORLD);
   ierr = VecCopy(user.A1,user.A0);CHKERRQ(ierr);
   ierr = VecCopy(user.D1,user.D0);CHKERRQ(ierr);
 
-  //Update Solution State
+  //Update Solution State in PD and IGA
   par->stepNumber++;
   peridigm->updateState();
 
+   // Write Solution
    if (par->stepNumber % par->FreqResults == 0) {
         char filename[256];
         sprintf(filename,"velS%d.dat",par->stepNumber);
         ierr = IGAWriteVec(user.iga,user.V1,filename);CHKERRQ(ierr);
-        //Write result to an ExodusII file at FreqResult Interval:
         peridigm->writePeridigmSubModel(par->stepNumber/par->FreqResults);
+        ierr = outputTXT(par,manager);CHKERRQ(ierr);
     }
 
-    // Dump residual At restart interval
-    if (par->stepNumber %  RestartStep == 0) {
-      double t1, t2;
-      MPI_Barrier(PETSC_COMM_WORLD);
-      t1 = MPI_Wtime();
+    // Write Restarts & exit.
+    if (par->stepNumber % (RestartStep) == 0) {
+
         peridigm->writeRestart(solverParams);
-      MPI_Barrier(PETSC_COMM_WORLD);
-      t2 = MPI_Wtime();
-      PetscPrintf(PETSC_COMM_WORLD, "Restart Writing Time = %e\n", t2-t1);
         char filename[256];
         sprintf(filename,"ResS%d.dat",par->stepNumber);
         ierr = IGAWriteVec(user.iga,Res,filename);CHKERRQ(ierr);
+        sprintf(filename,"velS%d.dat",par->stepNumber);
+        ierr = IGAWriteVec(user.iga,user.V1,filename);CHKERRQ(ierr);
+        sprintf(filename,"acelS%d.dat",par->stepNumber);
+        ierr = IGAWriteVec(user.iga,user.A1,filename);CHKERRQ(ierr);
+        ierr = OutputRestarts(par,user.V1,user.A1,manager);CHKERRQ(ierr);
+        MPI_Barrier(PETSC_COMM_WORLD);
+
+        ierr = VecDestroy(&user.V0);CHKERRQ(ierr);
+        ierr = VecDestroy(&user.Va);CHKERRQ(ierr);
+        ierr = VecDestroy(&user.V1);CHKERRQ(ierr);
+
+        ierr = VecDestroy(&user.A0);CHKERRQ(ierr);
+        ierr = VecDestroy(&user.Aa);CHKERRQ(ierr);
+        ierr = VecDestroy(&user.A1);CHKERRQ(ierr);
+
+        ierr = VecDestroy(&user.D0);CHKERRQ(ierr);
+        ierr = VecDestroy(&user.Da);CHKERRQ(ierr);
+        ierr = VecDestroy(&user.D1);CHKERRQ(ierr);
+
+        ierr = VecDestroy(&user.Vp);CHKERRQ(ierr);
+        ierr = VecDestroy(&user.Ap);CHKERRQ(ierr);
+        ierr = VecDestroy(&user.Dp);CHKERRQ(ierr);
+
+        ierr = VecDestroy(&user.dA);CHKERRQ(ierr);
+        PetscPrintf(PETSC_COMM_WORLD, "Restarts Written at time %e step %d. Exiting...\n", par->currentTime, par->stepNumber);
+        MPI_Barrier(PETSC_COMM_WORLD);
+        #ifdef HAVE_MPI
+          PetscFree(par);CHKERRQ(ierr);
+          IGADestroy(&iga);CHKERRQ(ierr);
+          PetscFinalize();CHKERRQ(ierr);
+        #endif
+        PetscFunctionReturn(0);
+
     }
 
-        // Dump Restart vector
-        if (par->stepNumber % RestartStep == 0) {
-          char filename[256];
-          sprintf(filename,"velS%d.dat",par->stepNumber);
-          ierr = IGAWriteVec(user.iga,user.V1,filename);CHKERRQ(ierr);
-          sprintf(filename,"acelS%d.dat",par->stepNumber);
-          ierr = IGAWriteVec(user.iga,user.A1,filename);CHKERRQ(ierr);
-        }
-        if (par->stepNumber % RestartStep == 0){
-          ierr = OutputRestarts(par,user.V1,user.A1,manager);CHKERRQ(ierr);
-        }
-        if (par->stepNumber % RestartStep == RestartStep-1){
-          ierr = OutputOldGeometry(par,manager);CHKERRQ(ierr);
-        }
-
-        ierr = MatDestroy(&A0);CHKERRQ(ierr);
-        ierr = outputTXT(par,manager);CHKERRQ(ierr);
-MPI_Barrier(PETSC_COMM_WORLD);
+  ierr = MatDestroy(&A0);CHKERRQ(ierr);
+  MPI_Barrier(PETSC_COMM_WORLD);
 }//End of Time Integration Loop
 
 ierr = VecDestroy(&user.V0);CHKERRQ(ierr);
