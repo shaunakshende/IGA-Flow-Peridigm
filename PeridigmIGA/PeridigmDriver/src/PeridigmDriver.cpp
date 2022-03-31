@@ -1701,7 +1701,7 @@ PetscErrorCode FormInitialCondition(IGA iga,PetscReal t,Vec U,AppCtx *user)
 
       //RDX Charge
       PetscReal Standoff = 0.076;
-      if(r<=(0.0049+1.5*h+0.000001) && sqrt((z-0.075)*(z-0.075))<=(0.00465132087901/2.0+1.5*h)/*z<=(30.0*h+(user->Lx)/user->iga->elem_sizes[0]) && z>=29.0*h-(user->Lx)/user->iga->elem_sizes[0]*/){
+      if(r<=(0.0049+1.5*h+0.000001) && sqrt((z-0.150)*(z-0.150))<=(0.00465132087901/2.0+1.5*h)/*z<=(30.0*h+(user->Lx)/user->iga->elem_sizes[0]) && z>=29.0*h-(user->Lx)/user->iga->elem_sizes[0]*/){
         u[k][j][i].ux   =  0.0;
         u[k][j][i].uz   =  0.0;
         u[k][j][i].uy   =  0.0;
@@ -4573,8 +4573,8 @@ for(auto it=its.first; it != its.second; ++it){
 
       if(fd.material==0){
         fd.computed_currentCoord[j] = fd.computed_tempCoord[j] + fd.totalPhysicalDisplacement[j] - fd.totalPhysicalDisplacementOldStep[j];
-       // info.currentCoord[0] = fd.computed_currentCoord[0];
-       // info.currentCoord[1] = fd.computed_currentCoord[1];
+        info.currentCoord[0] = fd.computed_currentCoord[0];
+        info.currentCoord[1] = fd.computed_currentCoord[1];
       }
 
     }
@@ -5341,7 +5341,7 @@ int main(int argc, char *argv[]) {
   user.Lx       = 0.5+user.spacing;
   user.Ly       = 0.5+user.spacing;
   user.Lz       = 0.5+user.spacing;
-  user.horizon  = 3.0*0.305/19.0;
+  user.horizon  = 3.0*0.305/59.0;
 
   user.PDInitialTime = par->initialTime;
   user.OutputRestart = par->finalTime;
