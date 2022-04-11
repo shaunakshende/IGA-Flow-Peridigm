@@ -1,0 +1,10 @@
+rm Rest*
+rm Vel*
+rm Pres*
+rm vel*
+rm acel*
+rm Dens*
+rm Mesh*
+rm mesh*
+rm Dam*
+rm *.e*

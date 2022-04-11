@@ -1,0 +1,41 @@
+
+
+
+
+TARGETS = \
+CylinderBlast \
+
+ALL: ${TARGETS}
+clean::
+	-@${RM} ${TARGETS}
+
+CFLAGS    = -w
+FFLAGS    =
+CPPFLAGS  = -std=c++11
+FPPFLAGS  =
+LOCDIR    = demo/PeridigmIGA/PeridigmDriver/GCC_4.7.2_OPT/
+EXAMPLESC =
+EXAMPLESF =
+MANSEC    = IGA
+
+topdir := $(shell cd ../../../../ && pwd)
+PETIGA_DIR ?= $(topdir)
+include ${PETIGA_DIR}/conf/petigavariables
+include ${PETIGA_DIR}/conf/petigarules
+CylinderBlast: CylinderBlast.o chkopts
+	${CLINKER} -o $@ $< ${PETIGA_LIB}
+	${RM} -f $<
+Taylor: Taylor4.o chkopts
+	${CLINKER} -o $@ $< ${PETIGA_LIB}
+	${RM} -f $<
+IGAPD: immersedPD.o chkopts
+	${CLINKER} -o $@ $< ${PETIGA_LIB}
+	${RM} -f $<
+IGAPD_AIR: immersedPD_AIR_MeshStretching.o chkopts
+	${CLINKER} -o $@ $< ${PETIGA_LIB}
+	${RM} -f $<
+IGAPD_RDX: immersedPD_RDX.o chkopts
+	${CLINKER} -o $@ $< ${PETIGA_LIB}
+	${RM} -f $<
+
+include ${PETIGA_DIR}/conf/petigatest
