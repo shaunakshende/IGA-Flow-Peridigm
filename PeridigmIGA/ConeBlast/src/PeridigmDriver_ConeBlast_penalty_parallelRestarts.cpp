@@ -7178,8 +7178,8 @@ int main(int argc, char *argv[]) {
   // outputParams.sublist("Output Variables").set("Cauchy_Stress", true);
   outputParams.sublist("Output Variables").set("Proc_Num", true);
 
-  Teuchos::ParameterList& restartParams = peridigmParams->sublist("Restart");
-  restartParams.set("Restart", PETSC_FALSE);
+  //Teuchos::ParameterList& restartParams = peridigmParams->sublist("Restart");
+  //restartParams.set("Restart", PETSC_TRUE);
   bool restart = peridigmParams->isParameter("Restart");
 
   PetscPrintf(PETSC_COMM_WORLD, "\n#########################################################\n");
@@ -7930,39 +7930,49 @@ MPI_Barrier(PETSC_COMM_WORLD);
   par->stepNumber++;
   peridigm->updateState();
 
-  if (par->stepNumber % par->FreqResults == 0) {
-       char filename[256];
-       sprintf(filename,"velS%d.dat",par->stepNumber);
-       ierr = IGAWriteVec(user.iga,user.V1,filename);CHKERRQ(ierr);
-       //Write result to an ExodusII file at FreqResult Interval:
-       peridigm->writePeridigmSubModel(par->stepNumber/par->FreqResults);
-   }
+  // Write Restarts & exit.
+  if (par->stepNumber % (RestartStep) == 0) {
 
-   // Dump residual At restart interval
-   if (par->stepNumber %  RestartStep == 0) {
-       peridigm->writeRestart(solverParams);
-       char filename[256];
-       sprintf(filename,"ResS%d.dat",par->stepNumber);
-       ierr = IGAWriteVec(user.iga,Res,filename);CHKERRQ(ierr);
-   }
-   // Dump Restart vector
-   if (par->stepNumber % RestartStep == 0) {
-   char filename[256];
-   sprintf(filename,"velS%d.dat",par->stepNumber);
-   ierr = IGAWriteVec(user.iga,user.V1,filename);CHKERRQ(ierr);
-   sprintf(filename,"acelS%d.dat",par->stepNumber);
-   ierr = IGAWriteVec(user.iga,user.A1,filename);CHKERRQ(ierr);
-   }
+     //peridigm->writeRestart(solverParams);
+      char filename[256];
+      sprintf(filename,"ResS%d.dat",par->stepNumber);
+      ierr = IGAWriteVec(user.iga,Res,filename);CHKERRQ(ierr);
+      sprintf(filename,"velS%d.dat",par->stepNumber);
+      ierr = IGAWriteVec(user.iga,user.V1,filename);CHKERRQ(ierr);
+      sprintf(filename,"acelS%d.dat",par->stepNumber);
+      ierr = IGAWriteVec(user.iga,user.A1,filename);CHKERRQ(ierr);
+      ierr = OutputRestarts(par,user.V1,user.A1,manager);CHKERRQ(ierr);
+      ierr = OutputPeridigmRestarts(par, manager, peridigm, num_PD_nodes_onRank);CHKERRQ(ierr);
+      MPI_Barrier(PETSC_COMM_WORLD);
 
-      if (par->stepNumber % RestartStep == 0){
-        ierr = OutputRestarts(par,user.V1,user.A1,manager);CHKERRQ(ierr);
-        ierr = OutputPeridigmRestarts(par, manager, peridigm, num_PD_nodes_onRank);CHKERRQ(ierr);
-      }
+      ierr = VecDestroy(&user.V0);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.Va);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.V1);CHKERRQ(ierr);
 
-   if (par->stepNumber % RestartStep == RestartStep-1){
-       ierr = OutputOldGeometry(par,manager);CHKERRQ(ierr);
-     }
+      ierr = VecDestroy(&user.A0);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.Aa);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.A1);CHKERRQ(ierr);
 
+      ierr = VecDestroy(&user.D0);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.Da);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.D1);CHKERRQ(ierr);
+
+      ierr = VecDestroy(&user.Vp);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.Ap);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.Dp);CHKERRQ(ierr);
+
+      ierr = VecDestroy(&user.dA);CHKERRQ(ierr);
+      PetscPrintf(PETSC_COMM_WORLD, "Restarts Written at time %e step %d. Exiting...\n", par->currentTime, par->stepNumber);
+      MPI_Barrier(PETSC_COMM_WORLD);
+      #ifdef HAVE_MPI
+        PetscFree(par);CHKERRQ(ierr);
+        IGADestroy(&iga);CHKERRQ(ierr);
+        PetscFinalize();CHKERRQ(ierr);
+      #endif
+      PetscFunctionReturn(0);
+
+  }
+  
 
    ierr = MatDestroy(&A0);CHKERRQ(ierr);
    ierr = outputTXT(par,manager);CHKERRQ(ierr);
