@@ -897,6 +897,14 @@ PetscErrorCode input (PARAMETERS *par,ParticleManager &manager, AppCtx *user)
 
 
               fd.Boundary = 0;
+
+              // Adding supports to concrete block, will kill any velocity where v dot n < 0
+              // if(fd.Boundary==0 && fd.material==0){
+              //    PetscReal x, y, z;
+              //    x = info.initialCoord[0]-(2.4-1.2)/2.0; y = info.initialCoord[1]-(2.4-1.2)/2.0; z = info.initialCoord[2]-(2.4-1.2)/2.0;
+              //     if(x < 0.010 || x > )
+              // }
+
               fd.Inside = 1;
 
               //Find PD solid boundaries
@@ -1203,6 +1211,7 @@ PetscErrorCode OutputRestarts(PARAMETERS *par,Vec U,Vec V,ParticleManager &manag
   ostringstream convert9;
   ostringstream convert10;
   ostringstream convert11;
+  ostringstream convert12;
 
   string fname;
 
@@ -1338,7 +1347,17 @@ PetscErrorCode OutputRestarts(PARAMETERS *par,Vec U,Vec V,ParticleManager &manag
     Num.open(fname, ios::out | ios::binary);
 		Num.write( (char*)&counter, sizeof(int));
 
+    // ##################################################
+    //                    Force State
+    // ##################################################
 
+    convert11 << "RestartForce." << rank << "." << par->stepNumber << ".dat";
+    fname = convert12.str();
+    ofstream Force;
+    Force.open(fname, ios::out | ios::binary);
+		Force.write( (char*)&counter, sizeof(int));
+
+    /////////////////////////////////////////////////////////
 		if (counter > 0){
 		   BGL_FORALL_VERTICES(v,manager.graph,Graph){
 			 ParticleInfo info = get(info_property,v);
@@ -1395,16 +1414,26 @@ PetscErrorCode OutputRestarts(PARAMETERS *par,Vec U,Vec V,ParticleManager &manag
         Mat.write( (char*)&fd.ID, sizeof(int));
 
         //Volume file includes information for volume update
-        //[volume, volume_initial, nodalDensity, nodalDensityInitial]
+        //[volume, volume_initial, referenceNodalVolume, nodalDensity, nodalDensityInitial, penaltyParameter, referencePenaltyParameterInternal]
 				Vol.write( (char*)&fd.nodalVolume, sizeof(double));
         Vol.write( (char*)&fd.nodalVolumeInitial, sizeof(double));
+        Vol.write( (char*)&fd.referenceNodalVolume, sizeof(double));
         Vol.write( (char*)&fd.nodalDensity, sizeof(double));
         Vol.write( (char*)&fd.nodalDensityInitial, sizeof(double));
+        Vol.write( (char*)&fd.referenceDensity, sizeof(double));
         Vol.write( (char*)&fd.penaltyParameter, sizeof(double));
-        Vol.write( (char*)& fd.referencePenaltyParameterInternal, sizeof(double));
+        Vol.write( (char*)&fd.referencePenaltyParameterInternal, sizeof(double));
 
 				Bound.write( (char*)&fd.Boundary, sizeof(int));
         Bound.write( (char*)&fd.Inside, sizeof(int));
+
+        for(j = 0 ; j ++ ; j < 3){
+        Force.write( (char*)&fd.inertia[j], sizeof(double));
+        Force.write( (char*)&fd.residual[j], sizeof(double));
+        Force.write( (char*)&fd.internalForce[j], sizeof(double));
+        Force.write( (char*)&fd.bodyForce[j], sizeof(double));
+        }
+
 			}
 		   }
     }
@@ -1420,6 +1449,8 @@ PetscErrorCode OutputRestarts(PARAMETERS *par,Vec U,Vec V,ParticleManager &manag
 		   Vol.close();
 		   Bound.close();
 		   Num.close();
+       Force.close();
+
 
   PetscFunctionReturn(0);
 }
@@ -1433,7 +1464,7 @@ PetscErrorCode OutputPeridigmRestarts(PARAMETERS *par, ParticleManager &manager,
 
   PetscMPIInt rank, size;
   int GID[num_PD_nodes_onRank];
-  int numOwnedPoints = 0;
+  int numOwnedPoints = num_PD_nodes_onRank;
 
 
 
@@ -1461,11 +1492,83 @@ PetscErrorCode OutputPeridigmRestarts(PARAMETERS *par, ParticleManager &manager,
                               gradientWeightX,
                               gradientWeightY,
                               gradientWeightZ,
-                              gradientWeightEvaluationFlag,
-                              velocityGradient;
-
-
-
+                              gradientWeightEval,
+                              velocityGradientX,
+                              velocityGradientY,
+                              velocityGradientZ,
+                              velocityGradientDotX,
+                              velocityGradientDotY,
+                              velocityGradientDotZ,
+                              Green_Lagrange_Strain_N,
+                              Green_Lagrange_Strain_NP1,
+                              Principal_Strains,
+                              StrainRate,
+                              PK2_Stress_N,
+                              PK2_Stress_NP1,
+                              Piola_Stress_XX,
+                              Piola_Stress_XY,
+                              Piola_Stress_XZ,
+                              Piola_Stress_YX,
+                              Piola_Stress_YY,
+                              Piola_Stress_YZ,
+                              Piola_Stress_ZX,
+                              Piola_Stress_ZY,
+                              Piola_Stress_ZZ,
+                              Stress_Integral,
+                              Strain_Rate_XX,
+                              Strain_Rate_XY,
+                              Strain_Rate_XZ,
+                              Strain_Rate_YX,
+                              Strain_Rate_YY,
+                              Strain_Rate_YZ,
+                              Strain_Rate_ZX,
+                              Strain_Rate_ZY,
+                              Strain_Rate_ZZ,
+                              Strain_XX_N,
+                              Strain_XX_NP1,
+                              Strain_XY_N,
+                              Strain_XY_NP1,
+                              Strain_XZ_N,
+                              Strain_XZ_NP1,
+                              Strain_YX_N,
+                              Strain_YX_NP1,
+                              Strain_YY_N,
+                              Strain_YY_NP1,
+                              Strain_YZ_N,
+                              Strain_YZ_NP1,
+                              Strain_ZX_N,
+                              Strain_ZX_NP1,
+                              Strain_ZY_N,
+                              Strain_ZY_NP1,
+                              Strain_ZZ_N,
+                              Strain_ZZ_NP1,
+                              PK2_Stress_XX_N,
+                              PK2_Stress_XX_NP1,
+                              PK2_Stress_XY_N,
+                              PK2_Stress_XY_NP1,
+                              PK2_Stress_XZ_N,
+                              PK2_Stress_XZ_NP1,
+                              PK2_Stress_YX_N,
+                              PK2_Stress_YX_NP1,
+                              PK2_Stress_YY_N,
+                              PK2_Stress_YY_NP1,
+                              PK2_Stress_YZ_N,
+                              PK2_Stress_YZ_NP1,
+                              PK2_Stress_ZX_N,
+                              PK2_Stress_ZX_NP1,
+                              PK2_Stress_ZY_N,
+                              PK2_Stress_ZY_NP1,
+                              PK2_Stress_ZZ_N,
+                              PK2_Stress_ZZ_NP1,
+                              Deformation_Gradient_XX,
+                              Deformation_Gradient_XY,
+                              Deformation_Gradient_XZ,
+                              Deformation_Gradient_YX,
+                              Deformation_Gradient_YY,
+                              Deformation_Gradient_YZ,
+                              Deformation_Gradient_ZX,
+                              Deformation_Gradient_ZY,
+                              Deformation_Gradient_ZZ;
 
 
   MPI_Comm_size(PETSC_COMM_WORLD, &size);
@@ -1516,12 +1619,102 @@ PetscErrorCode OutputPeridigmRestarts(PARAMETERS *par, ParticleManager &manager,
   DAMAGE.open(FILENAME, ios::out | ios::binary);
   FILESTREAM.str("");FILESTREAM.clear();
 
+  FILESTREAM << "PeridigmRestarts/RestartModelCoord." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream MODELCOORD;
+  MODELCOORD.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartForceDensity." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream FORCEDENSITY;
+  FORCEDENSITY.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartBondDamage." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream BONDDAMAGE;
+  BONDDAMAGE.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartInfluenceState." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream INFLUENCESTATE;
+  INFLUENCESTATE.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartWeightedVols." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream WEIGHTEDVOLS;
+  WEIGHTEDVOLS.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartGradWeight." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream GRADWEIGHT;
+  GRADWEIGHT.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartGradWeightFlag." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream GRADWEIGHTFLAG;
+  GRADWEIGHTFLAG.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartDefGrad." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream DEFGRAD;
+  DEFGRAD.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartGLStrain." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream GLSTRAIN;
+  GLSTRAIN.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartPStrain." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream PSTRAIN;
+  PSTRAIN.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartPK2_strainrate." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream SRATE_PK2;
+  SRATE_PK2.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartPiolaStress." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream PIOLASTRESS;
+  PIOLASTRESS.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartStressIntegral." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream STRESSINT;
+  STRESSINT.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartBondLevelStrain_StrainRate_PK2Stress." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream BLEVELSTRAIN_STRAINRATE;
+  BLEVELSTRAIN_STRAINRATE.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartBondLevelDefGrad." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream BLEVEL_DEFGRAD;
+  BLEVEL_DEFGRAD.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
   // Block iterator loop
   Teuchos::RCP< std::vector<PeridigmNS::Block> > blocks = peridigm->getBlocks();
   for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
 
     std::string blockName = blockIt->getName();
-    numOwnedPoints = (int)blockIt->getNeighborhoodData()->NumOwnedPoints();
+    numOwnedPoints = blockIt->getNeighborhoodData()->NumOwnedPoints();
     Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
     map = blockIt->getOwnedScalarPointMap();
 
@@ -1617,25 +1810,201 @@ PetscErrorCode OutputPeridigmRestarts(PARAMETERS *par, ParticleManager &manager,
    horizon           = blockIt->getData(horizonFieldId       , PeridigmField::STEP_NONE);
 
    // From the concrete model:
-    modelCoordinates  = blockIt->getData( m_modelCoordinatesFieldId  , PeridigmField::STEP_NONE);
-
+    modelCoordinates          = blockIt->getData( m_modelCoordinatesFieldId                , PeridigmField::STEP_NONE);
+    force_density_N           = blockIt->getData( m_forceDensityFieldId                    , PeridigmField::STEP_N);
+    force_density_NP1         = blockIt->getData( m_forceDensityFieldId                    , PeridigmField::STEP_NP1);
+    bondDamage_N              = blockIt->getData( m_bondDamageFieldId                      , PeridigmField::STEP_N);
+    bondDamage_NP1            = blockIt->getData( m_bondDamageFieldId                      , PeridigmField::STEP_NP1);
+    influenceState            = blockIt->getData( m_influenceStateFieldId                  , PeridigmField::STEP_NONE);
+    weightedVolume            = blockIt->getData( m_weightedVolumeFieldId                  , PeridigmField::STEP_NONE);
+    gradientWeightX           = blockIt->getData( m_gradientWeightXFieldId                 , PeridigmField::STEP_NONE);
+    gradientWeightY           = blockIt->getData( m_gradientWeightYFieldId                 , PeridigmField::STEP_NONE);
+    gradientWeightZ           = blockIt->getData( m_gradientWeightZFieldId                 , PeridigmField::STEP_NONE);
+    gradientWeightEval        = blockIt->getData( m_gradientWeightEvaluationFlagFieldId    , PeridigmField::STEP_NONE);
+    velocityGradientX         = blockIt->getData( m_deformationGradientXFieldId            , PeridigmField::STEP_NONE);
+    velocityGradientY         = blockIt->getData( m_deformationGradientYFieldId            , PeridigmField::STEP_NONE);
+    velocityGradientZ         = blockIt->getData( m_deformationGradientZFieldId            , PeridigmField::STEP_NONE);
+    velocityGradientDotX      = blockIt->getData( m_deformationGradientDotXFieldId         , PeridigmField::STEP_NONE);
+    velocityGradientDotY      = blockIt->getData( m_deformationGradientDotYFieldId         , PeridigmField::STEP_NONE);
+    velocityGradientDotZ      = blockIt->getData( m_deformationGradientDotZFieldId         , PeridigmField::STEP_NONE);
+    Green_Lagrange_Strain_N   = blockIt->getData( m_greenLagrangeStrainFieldId             , PeridigmField::STEP_N);
+    Green_Lagrange_Strain_NP1 = blockIt->getData( m_greenLagrangeStrainFieldId             , PeridigmField::STEP_NP1);
+    Principal_Strains         = blockIt->getData( m_principalStrainsFieldId                , PeridigmField::STEP_NONE);
+    StrainRate                = blockIt->getData( m_strainRateFieldId                      , PeridigmField::STEP_NONE);
+    PK2_Stress_N              = blockIt->getData( m_PK2StressFieldId                       , PeridigmField::STEP_N);
+    PK2_Stress_NP1            = blockIt->getData( m_PK2StressFieldId                       , PeridigmField::STEP_NP1);
+    Piola_Stress_XX           = blockIt->getData( m_bondLevelPiolaStressXXFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_XY           = blockIt->getData( m_bondLevelPiolaStressXYFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_XZ           = blockIt->getData( m_bondLevelPiolaStressXZFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_YX           = blockIt->getData( m_bondLevelPiolaStressYXFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_YY           = blockIt->getData( m_bondLevelPiolaStressYYFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_YZ           = blockIt->getData( m_bondLevelPiolaStressYZFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_ZX           = blockIt->getData( m_bondLevelPiolaStressZXFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_ZY           = blockIt->getData( m_bondLevelPiolaStressZYFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_ZZ           = blockIt->getData( m_bondLevelPiolaStressZZFieldId          , PeridigmField::STEP_NONE);
+    Stress_Integral           = blockIt->getData( m_stressIntegralFieldId                  , PeridigmField::STEP_NONE);
+    Strain_Rate_XX            = blockIt->getData( m_bondLevelStrainRateXXFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_XY            = blockIt->getData( m_bondLevelStrainRateXYFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_XZ            = blockIt->getData( m_bondLevelStrainRateXZFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_YX            = blockIt->getData( m_bondLevelStrainRateYXFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_YY            = blockIt->getData( m_bondLevelStrainRateYYFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_YZ            = blockIt->getData( m_bondLevelStrainRateYZFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_ZX            = blockIt->getData( m_bondLevelStrainRateZXFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_ZY            = blockIt->getData( m_bondLevelStrainRateZYFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_ZZ            = blockIt->getData( m_bondLevelStrainRateZZFieldId           , PeridigmField::STEP_NONE);
+    Strain_XX_N               = blockIt->getData( m_bondLevelStrainXXFieldId               , PeridigmField::STEP_N);
+    Strain_XX_NP1             = blockIt->getData( m_bondLevelStrainXXFieldId               , PeridigmField::STEP_NP1);
+    Strain_XY_N               = blockIt->getData( m_bondLevelStrainXYFieldId               , PeridigmField::STEP_N);
+    Strain_XY_NP1             = blockIt->getData( m_bondLevelStrainXYFieldId               , PeridigmField::STEP_NP1);
+    Strain_XZ_N               = blockIt->getData( m_bondLevelStrainXZFieldId               , PeridigmField::STEP_N);
+    Strain_XZ_NP1             = blockIt->getData( m_bondLevelStrainXZFieldId               , PeridigmField::STEP_NP1);
+    Strain_YX_N               = blockIt->getData( m_bondLevelStrainYXFieldId               , PeridigmField::STEP_N);
+    Strain_YX_NP1             = blockIt->getData( m_bondLevelStrainYXFieldId               , PeridigmField::STEP_NP1);
+    Strain_YY_N               = blockIt->getData( m_bondLevelStrainYYFieldId               , PeridigmField::STEP_N);
+    Strain_YY_NP1             = blockIt->getData( m_bondLevelStrainYYFieldId               , PeridigmField::STEP_NP1);
+    Strain_YZ_N               = blockIt->getData( m_bondLevelStrainYZFieldId               , PeridigmField::STEP_N);
+    Strain_YZ_NP1             = blockIt->getData( m_bondLevelStrainYZFieldId               , PeridigmField::STEP_NP1);
+    Strain_ZX_N               = blockIt->getData( m_bondLevelStrainZXFieldId               , PeridigmField::STEP_N);
+    Strain_ZX_NP1             = blockIt->getData( m_bondLevelStrainZXFieldId               , PeridigmField::STEP_NP1);
+    Strain_ZY_N               = blockIt->getData( m_bondLevelStrainZYFieldId               , PeridigmField::STEP_N);
+    Strain_ZY_NP1             = blockIt->getData( m_bondLevelStrainZYFieldId               , PeridigmField::STEP_NP1);
+    Strain_ZZ_N               = blockIt->getData( m_bondLevelStrainZZFieldId               , PeridigmField::STEP_N);
+    Strain_ZZ_NP1             = blockIt->getData( m_bondLevelStrainZZFieldId               , PeridigmField::STEP_NP1);
+    PK2_Stress_XX_N           = blockIt->getData( m_bondLevelPK2StressXXFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_XY_N           = blockIt->getData( m_bondLevelPK2StressXYFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_XZ_N           = blockIt->getData( m_bondLevelPK2StressXZFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_YX_N           = blockIt->getData( m_bondLevelPK2StressYXFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_YY_N           = blockIt->getData( m_bondLevelPK2StressYYFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_YZ_N           = blockIt->getData( m_bondLevelPK2StressYZFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_ZX_N           = blockIt->getData( m_bondLevelPK2StressZXFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_ZY_N           = blockIt->getData( m_bondLevelPK2StressZYFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_ZZ_N           = blockIt->getData( m_bondLevelPK2StressZZFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_XX_NP1         = blockIt->getData( m_bondLevelPK2StressXXFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_XY_NP1         = blockIt->getData( m_bondLevelPK2StressXYFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_XZ_NP1         = blockIt->getData( m_bondLevelPK2StressXZFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_YX_NP1         = blockIt->getData( m_bondLevelPK2StressYXFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_YY_NP1         = blockIt->getData( m_bondLevelPK2StressYYFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_YZ_NP1         = blockIt->getData( m_bondLevelPK2StressYZFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_ZX_NP1         = blockIt->getData( m_bondLevelPK2StressZXFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_ZY_NP1         = blockIt->getData( m_bondLevelPK2StressZYFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_ZZ_NP1         = blockIt->getData( m_bondLevelPK2StressZZFieldId            , PeridigmField::STEP_NP1);
+    Deformation_Gradient_XX   = blockIt->getData( m_bondLevelDeformationGradientXXFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_XY   = blockIt->getData( m_bondLevelDeformationGradientXYFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_XZ   = blockIt->getData( m_bondLevelDeformationGradientXZFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_YX   = blockIt->getData( m_bondLevelDeformationGradientYXFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_YY   = blockIt->getData( m_bondLevelDeformationGradientYYFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_YZ   = blockIt->getData( m_bondLevelDeformationGradientYZFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_ZX   = blockIt->getData( m_bondLevelDeformationGradientZXFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_ZY   = blockIt->getData( m_bondLevelDeformationGradientZYFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_ZZ   = blockIt->getData( m_bondLevelDeformationGradientZZFieldId  , PeridigmField::STEP_NONE);
 
 
    }
 
 
    // Instead of extractview, use this function so that the values cannot be altered in write
-   double *coordinates_N_values         = coordinates_N->Values(); //CDV
-   double *coordinates_NP1_values       = coordinates_NP1->Values(); //CDV
-   double *displacement_N_values        = displacement_N->Values(); //CDV
-   double *displacement_NP1_values      = displacement_NP1->Values(); //CDV
-   double *velocity_N_values            = velocity_N->Values(); //CDV
-   double *velocity_NP1_values          = velocity_NP1->Values(); //CDV
-   double *damage_N_values              = damage_N->Values(); //DAMAGE
-   double *damage_NP1_values            = damage_NP1->Values(); //DAMAGE
-   double *horizon_values               = horizon->Values(); //HORIZON
+   double *coordinates_N_values          = coordinates_N->Values(); //CDV
+   double *coordinates_NP1_values        = coordinates_NP1->Values(); //CDV
+   double *displacement_N_values         = displacement_N->Values(); //CDV
+   double *displacement_NP1_values       = displacement_NP1->Values(); //CDV
+   double *velocity_N_values             = velocity_N->Values(); //CDV
+   double *velocity_NP1_values           = velocity_NP1->Values(); //CDV
+   double *damage_N_values               = damage_N->Values(); //DAMAGE
+   double *damage_NP1_values             = damage_NP1->Values(); //DAMAGE
+   double *horizon_values                = horizon->Values(); //HORIZON
+
+   // From concrete Model:
+   // Bond quantities: BOND - RestartBond
+   double *modelCoordinates_values       = modelCoordinates->Values(); // MODELCOORD - NODE - VECTOR
+   double *force_density_N_values        = force_density_N->Values(); //FORCEDENSITY - NODE
+   double *force_density_NP1_values      = force_density_NP1->Values(); //FORCEDENSITY - NODE
+   double *bondDamage_N_values           = bondDamage_N->Values(); //BONDDAMAGE - BOND
+   double *bondDamage_NP1_values         = bondDamage_NP1->Values(); //BONDDAMAGE - BOND
+   double *influenceState_values         = influenceState->Values(); //INFLUENCESTATE - BOND
+   double *weightedVolume_values         = weightedVolume->Values(); //WEIGHTEDVOLS - ELEMENT
+   double *gradientWeightX_values        = gradientWeightX->Values(); //GRADWEIGHT - BOND - SCALAR
+   double *gradientWeightY_values        = gradientWeightY->Values(); //GRADWEIGHT - BOND - SCALAR
+   double *gradientWeightZ_values        = gradientWeightZ->Values(); //GRADWEIGHT - BOND - SCALAR
+   double *gradientWeightEval_values     = gradientWeightEval->Values(); //GRADWEIGHTFLAG - ELEMENT
+   double *velocityGradientX_values      = velocityGradientX->Values(); // DEFGRAD - ELEMENT  - VECTOR
+   double *velocityGradientY_values      = velocityGradientY->Values(); // DEFGRAD - ELEMENT  - VECTOR
+   double *velocityGradientZ_values      = velocityGradientZ->Values(); // DEFGRAD - ELEMENT  - VECTOR
+   double *velocityGradientDotX_values   = velocityGradientDotX->Values(); // DEFGRAD - ELEMENT  - VECTOR
+   double *velocityGradientDotY_values   = velocityGradientDotY->Values(); // DEFGRAD - ELEMENT  - VECTOR
+   double *velocityGradientDotZ_values   = velocityGradientDotZ->Values(); // DEFGRAD - ELEMENT - VECTOR
+   double *Green_Lagrange_Strain_N_val   = Green_Lagrange_Strain_N->Values(); //GLSTRAIN - ELEMENT - FULLTENSOR
+   double *Green_Lagrange_Strain_NP1_val = Green_Lagrange_Strain_NP1->Values(); //GLSTRAIN - ELEMENT - FULLTENSOR
+   double *Principal_Strains_values      = Principal_Strains->Values(); //PSTRAIN - ELEMENT - VECTOR
+   double *StrainRate_values             = StrainRate->Values(); //SRATE_PK2 - ELEMENT - FULL TENSOR
+   double *PK2_Stress_N_values           = PK2_Stress_N->Values(); //STRATE_PK2 - ELEMENT - FULL TENSOR
+   double *PK2_Stress_NP1_values         = PK2_Stress_NP1->Values(); //STRATE_PK2 - ELEMENT - FULL TENSOR
+   double *Piola_Stress_XX_values        = Piola_Stress_XX->Values(); //PIOLASTRESS - BOND - SCALAR
+   double *Piola_Stress_XY_values        = Piola_Stress_XY->Values(); //PIOLASTRESS - BOND - SCALAR
+   double *Piola_Stress_XZ_values        = Piola_Stress_XZ->Values(); //PIOLASTRESS - BOND - SCALAR
+   double *Piola_Stress_YX_values        = Piola_Stress_YX->Values(); //PIOLASTRESS - BOND - SCALAR
+   double *Piola_Stress_YY_values        = Piola_Stress_YY->Values(); //PIOLASTRESS - BOND - SCALAR
+   double *Piola_Stress_YZ_values        = Piola_Stress_YZ->Values(); //PIOLASTRESS - BOND - SCALAR
+   double *Piola_Stress_ZX_values        = Piola_Stress_ZX->Values(); //PIOLASTRESS - BOND - SCALAR
+   double *Piola_Stress_ZY_values        = Piola_Stress_ZY->Values(); //PIOLASTRESS - BOND - SCALAR
+   double *Piola_Stress_ZZ_values        = Piola_Stress_ZZ->Values(); //PIOLASTRESS - BOND - SCALAR
+   double *Stress_Integral_values        = Stress_Integral->Values(); //STRESSINT - ELEMENT - FULLTENSOR
+   double *Strain_Rate_XX_values         = Strain_Rate_XX->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_Rate_XY_values         = Strain_Rate_XY->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_Rate_XZ_values         = Strain_Rate_XZ->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_Rate_YX_values         = Strain_Rate_YX->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_Rate_YY_values         = Strain_Rate_YY->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_Rate_YZ_values         = Strain_Rate_YZ->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_Rate_ZX_values         = Strain_Rate_ZX->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_Rate_ZY_values         = Strain_Rate_ZY->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_Rate_ZZ_values         = Strain_Rate_ZZ->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_XX_N_values            = Strain_XX_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_XX_NP1_values          = Strain_XX_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_XY_N_values            = Strain_XY_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_XY_NP1_values          = Strain_XY_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_XZ_N_values            = Strain_XZ_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_XZ_NP1_values          = Strain_XZ_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_YX_N_values            = Strain_YX_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_YX_NP1_values          = Strain_YX_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_YY_N_values            = Strain_YY_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_YY_NP1_values          = Strain_YY_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_YZ_N_values            = Strain_YZ_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_YZ_NP1_values          = Strain_YZ_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_ZX_N_values            = Strain_ZX_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_ZX_NP1_values          = Strain_ZX_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_ZY_N_values            = Strain_ZY_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_ZY_NP1_values          = Strain_ZY_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_ZZ_N_values            = Strain_ZZ_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Strain_ZZ_NP1_values          = Strain_ZZ_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_XX_N_values        = PK2_Stress_XX_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_XX_NP1_values      = PK2_Stress_XX_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_XY_N_values        = PK2_Stress_XY_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_XY_NP1_values      = PK2_Stress_XY_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_XZ_N_values        = PK2_Stress_XZ_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_XZ_NP1_values      = PK2_Stress_XZ_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_YX_N_values        = PK2_Stress_YX_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_YX_NP1_values      = PK2_Stress_YX_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_YY_N_values        = PK2_Stress_YY_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_YY_NP1_values      = PK2_Stress_YY_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_YZ_N_values        = PK2_Stress_YZ_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_YZ_NP1_values      = PK2_Stress_YZ_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_ZX_N_values        = PK2_Stress_ZX_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_ZX_NP1_values      = PK2_Stress_ZX_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_ZY_N_values        = PK2_Stress_ZY_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_ZY_NP1_values      = PK2_Stress_ZY_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_ZZ_N_values        = PK2_Stress_ZZ_N->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *PK2_Stress_ZZ_NP1_values      = PK2_Stress_ZZ_NP1->Values(); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+   double *Deformation_Gradient_XX_values= Deformation_Gradient_XX->Values(); //BLEVEL_DEFGRAD - BOND - SCALAR
+   double *Deformation_Gradient_XY_values= Deformation_Gradient_XY->Values(); //BLEVEL_DEFGRAD - BOND - SCALAR
+   double *Deformation_Gradient_XZ_values= Deformation_Gradient_XZ->Values(); //BLEVEL_DEFGRAD - BOND - SCALAR
+   double *Deformation_Gradient_YX_values= Deformation_Gradient_YX->Values(); //BLEVEL_DEFGRAD - BOND - SCALAR
+   double *Deformation_Gradient_YY_values= Deformation_Gradient_YY->Values(); //BLEVEL_DEFGRAD - BOND - SCALAR
+   double *Deformation_Gradient_YZ_values= Deformation_Gradient_YZ->Values(); //BLEVEL_DEFGRAD - BOND - SCALAR
+   double *Deformation_Gradient_ZX_values= Deformation_Gradient_ZX->Values(); //BLEVEL_DEFGRAD - BOND - SCALAR
+   double *Deformation_Gradient_ZY_values= Deformation_Gradient_ZY->Values(); //BLEVEL_DEFGRAD - BOND - SCALAR
+   double *Deformation_Gradient_ZZ_values= Deformation_Gradient_ZZ->Values(); //BLEVEL_DEFGRAD - BOND - SCALAR
 
 
+   // Quantities accesible through get
    blockIDs         = peridigm->getBlockIDs();
    deltaTemperature = peridigm->getDeltaTemperature();
    x                = peridigm->getX();
@@ -1653,20 +2022,93 @@ PetscErrorCode OutputPeridigmRestarts(PARAMETERS *par, ParticleManager &manager,
     for(int i=0 ; i < numOwnedPoints ; i++){
       GID[i] = map->GID(i);
 
-      //// Scalar Quantities N////
+      //// Scalar Quantities N or Step None or Step N+1////
       BLOCKIDS.write( (char*)&(*blockIDs)[i], sizeof(int));
       VOLUME.write( (char*)&(*volume)[i], sizeof(double));
       HORIZON.write( (char*)&horizon_values[i], sizeof(double));
       DAMAGE.write( (char*)&damage_N_values[i], sizeof(double));
-      //////////////////////////
+      BONDDAMAGE.write( (char*)&bondDamage_N_values[i], sizeof(double) );
+      BONDDAMAGE.write( (char*)&bondDamage_NP1_values[i], sizeof(double) );
+      INFLUENCESTATE.write( (char*)&influenceState_values[i], sizeof(double) );
+      WEIGHTEDVOLS.write( (char*)&weightedVolume_values[i], sizeof(double) );
 
-      //// Scalar Quantities N+1////
+      GRADWEIGHT.write( (char*)&gradientWeightX_values[i], sizeof(double) );
+      GRADWEIGHT.write( (char*)&gradientWeightY_values[i], sizeof(double) );
+      GRADWEIGHT.write( (char*)&gradientWeightY_values[i], sizeof(double) );
+
+      GRADWEIGHTFLAG.write( (char*)&gradientWeightEval_values[i], sizeof(double) );
+
+       PIOLASTRESS.write( (char*)&Piola_Stress_XX_values[i], sizeof(double) );
+       PIOLASTRESS.write( (char*)&Piola_Stress_XY_values[i], sizeof(double) );
+       PIOLASTRESS.write( (char*)&Piola_Stress_XZ_values[i], sizeof(double) );
+       PIOLASTRESS.write( (char*)&Piola_Stress_YX_values[i], sizeof(double) );
+       PIOLASTRESS.write( (char*)&Piola_Stress_YY_values[i], sizeof(double) );
+       PIOLASTRESS.write( (char*)&Piola_Stress_YZ_values[i], sizeof(double) );
+       PIOLASTRESS.write( (char*)&Piola_Stress_ZX_values[i], sizeof(double) );
+       PIOLASTRESS.write( (char*)&Piola_Stress_ZY_values[i], sizeof(double) );
+       PIOLASTRESS.write( (char*)&Piola_Stress_ZZ_values[i], sizeof(double) );
+
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_Rate_XX_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_Rate_XY_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_Rate_XZ_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_Rate_YX_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_Rate_YY_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_Rate_YZ_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_Rate_ZX_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_Rate_ZY_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_Rate_ZZ_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_XX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_XX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_XY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_XY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_XZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_XZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_YX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_YX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_YY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_YY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_YZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_YZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_ZX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_ZX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_ZY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_ZY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_ZZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&Strain_ZZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_XX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_XX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_XY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_XY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_XZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_XZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_YX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_YX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_YY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_YY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_YZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_YZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_ZX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_ZX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_ZY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_ZY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_ZZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.write( (char*)&PK2_Stress_ZZ_NP1_values[i], sizeof(double) );
+
+      BLEVEL_DEFGRAD.write( (char*)&Deformation_Gradient_XX_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.write( (char*)&Deformation_Gradient_XY_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.write( (char*)&Deformation_Gradient_XZ_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.write( (char*)&Deformation_Gradient_YX_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.write( (char*)&Deformation_Gradient_YY_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.write( (char*)&Deformation_Gradient_YZ_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.write( (char*)&Deformation_Gradient_ZX_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.write( (char*)&Deformation_Gradient_ZY_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.write( (char*)&Deformation_Gradient_ZZ_values[i], sizeof(double) );
+
       DAMAGE.write( (char*)&damage_NP1_values[i], sizeof(double));
-      //////////////////////////
+
 
       //// Vector Quantities ////
       for(int j = 0 ; j < 3 ; j++){
-        // Step None //
 
         // Kinematic information will be stored as x_{node, dof} :
         // x_11 u_11 y_11 ... deltaU_11 x_12 u_12 y_12 ...
@@ -1694,16 +2136,37 @@ PetscErrorCode OutputPeridigmRestarts(PARAMETERS *par, ParticleManager &manager,
         CDV.write( (char*)&displacement_NP1_values[i*3+j], sizeof(double) );
         CDV.write( (char*)&velocity_NP1_values[i*3+j], sizeof(double) );
 
+        // CONCRETE QUANTITIES //
+        MODELCOORD.write( (char*)&modelCoordinates_values[i*3+j], sizeof(double) );
+        FORCEDENSITY.write( (char*)&force_density_N_values[i*3+j], sizeof(double) );
+        FORCEDENSITY.write( (char*)&force_density_NP1_values[i*3+j], sizeof(double) );
+        DEFGRAD.write( (char*)&velocityGradientX_values[i*3+j], sizeof(double) );
+        DEFGRAD.write( (char*)&velocityGradientY_values[i*3+j], sizeof(double) );
+        DEFGRAD.write( (char*)&velocityGradientZ_values[i*3+j], sizeof(double) );
+        DEFGRAD.write( (char*)&velocityGradientDotX_values[i*3+j], sizeof(double) );
+        DEFGRAD.write( (char*)&velocityGradientDotY_values[i*3+j], sizeof(double) );
+        DEFGRAD.write( (char*)&velocityGradientDotZ_values[i*3+j], sizeof(double) );
+        PSTRAIN.write( (char*)&Principal_Strains_values[i*3+j], sizeof(double) );
+        if(i == 5 && j==2 && rank == 0){
+          PetscPrintf(PETSC_COMM_WORLD, "PStrain written = %e \n"); 
+        }
+      }
 
+
+      //// Tensor Quantites 9 per Node /////
+      for(int j = 0 ; j < 9 ; j ++){
+       GLSTRAIN.write( (char*)&Green_Lagrange_Strain_N_val[i*9+j], sizeof(double));
+       GLSTRAIN.write( (char*)&Green_Lagrange_Strain_NP1_val[i*9+j], sizeof(double));
+
+       SRATE_PK2.write( (char*)&StrainRate_values[i*9+j], sizeof(double));
+       SRATE_PK2.write( (char*)&PK2_Stress_N_values[i*9+j], sizeof(double));
+       SRATE_PK2.write( (char*)&PK2_Stress_NP1_values[i*9+j], sizeof(double));
+
+       STRESSINT.write( (char*)&Stress_Integral_values[i*9+j], sizeof(double));
       }
       //////////////////////////
-
-
-
     }
 
-
-  MPI_Barrier(PETSC_COMM_WORLD);
 
   VOLUME.close();
   HORIZON.close();
@@ -1712,10 +2175,7834 @@ PetscErrorCode OutputPeridigmRestarts(PARAMETERS *par, ParticleManager &manager,
   BLOCKIDS.close();
   FORCE.close();
   CDV.close();
-
-  /// Write Value quantities to rank-wise restart files
+  MODELCOORD.close();
+  FORCEDENSITY.close();
+  BONDDAMAGE.close();
+  INFLUENCESTATE.close();
+  WEIGHTEDVOLS.close();
+  GRADWEIGHT.close();
+  GRADWEIGHTFLAG.close();
+  DEFGRAD.close();
+  GLSTRAIN.close();
+  PSTRAIN.close();
+  SRATE_PK2.close();
+  PIOLASTRESS.close();
+  STRESSINT.close();
+  BLEVELSTRAIN_STRAINRATE.close();
+  BLEVEL_DEFGRAD.close();
 
   PetscPrintf(PETSC_COMM_WORLD, "Done Writing PD Restarts. \n");
+
+PetscFunctionReturn(ierr);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "OutputM7Restarts"
+PetscErrorCode OutputM7Restarts(PARAMETERS *par, ParticleManager &manager, const Teuchos::RCP<PeridigmNS::Peridigm> peridigm, const int num_PD_nodes_onRank){
+  PetscFunctionBegin;
+  PetscErrorCode ierr = 0;
+  PetscMPIInt rank, size;
+  ostringstream FILESTREAM;
+  string        FILENAME;
+  MPI_Comm_size(PETSC_COMM_WORLD, &size);
+  MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+
+Teuchos::RCP<Epetra_Vector>
+ms1_N, ms1_NP1,
+ms2_N, ms2_NP1,
+ms3_N, ms3_NP1,
+ms4_N, ms4_NP1,
+ms5_N, ms5_NP1,
+ms6_N, ms6_NP1,
+ms7_N, ms7_NP1,
+ms8_N, ms8_NP1,
+ms9_N, ms9_NP1,
+ms10_N, ms10_NP1,
+ms11_N, ms11_NP1,
+ms12_N, ms12_NP1,
+ms13_N, ms13_NP1,
+ms14_N, ms14_NP1,
+ms15_N, ms15_NP1,
+ms16_N, ms16_NP1,
+ms17_N, ms17_NP1,
+ms18_N, ms18_NP1,
+ms19_N, ms19_NP1,
+ms20_N, ms20_NP1,
+ms21_N, ms21_NP1,
+ms22_N, ms22_NP1,
+ms23_N, ms23_NP1,
+ms24_N, ms24_NP1,
+ms25_N, ms25_NP1,
+ms26_N, ms26_NP1,
+ms27_N, ms27_NP1,
+ms28_N, ms28_NP1,
+ms29_N, ms29_NP1,
+ms30_N, ms30_NP1,
+ms31_N, ms31_NP1,
+ms32_N, ms32_NP1,
+ms33_N, ms33_NP1,
+ms34_N, ms34_NP1,
+ms35_N, ms35_NP1,
+ms36_N, ms36_NP1,
+ms37_N, ms37_NP1,
+ms38_N, ms38_NP1,
+ms39_N, ms39_NP1,
+ms40_N, ms40_NP1,
+ms41_N, ms41_NP1,
+ms42_N, ms42_NP1,
+ms43_N, ms43_NP1,
+ms44_N, ms44_NP1,
+ms45_N, ms45_NP1,
+ms46_N, ms46_NP1,
+ms47_N, ms47_NP1,
+ms48_N, ms48_NP1,
+ms49_N, ms49_NP1,
+ms50_N, ms50_NP1,
+ms51_N, ms51_NP1,
+ms52_N, ms52_NP1,
+ms53_N, ms53_NP1,
+ms54_N, ms54_NP1,
+ms55_N, ms55_NP1,
+ms56_N, ms56_NP1,
+ms57_N, ms57_NP1,
+ms58_N, ms58_NP1,
+ms59_N, ms59_NP1,
+ms60_N, ms60_NP1,
+ms61_N, ms61_NP1,
+ms62_N, ms62_NP1,
+ms63_N, ms63_NP1,
+ms64_N, ms64_NP1,
+ms65_N, ms65_NP1,
+ms66_N, ms66_NP1,
+ms67_N, ms67_NP1,
+ms68_N, ms68_NP1,
+ms69_N, ms69_NP1,
+ms70_N, ms70_NP1,
+ms71_N, ms71_NP1,
+ms72_N, ms72_NP1,
+ms73_N, ms73_NP1,
+ms74_N, ms74_NP1,
+ms75_N, ms75_NP1,
+ms76_N, ms76_NP1,
+ms77_N, ms77_NP1,
+ms78_N, ms78_NP1,
+ms79_N, ms79_NP1,
+ms80_N, ms80_NP1,
+ms81_N, ms81_NP1,
+ms82_N, ms82_NP1,
+ms83_N, ms83_NP1,
+ms84_N, ms84_NP1,
+ms85_N, ms85_NP1,
+ms86_N, ms86_NP1,
+ms87_N, ms87_NP1,
+ms88_N, ms88_NP1,
+ms89_N, ms89_NP1,
+ms90_N, ms90_NP1,
+ms91_N, ms91_NP1,
+ms92_N, ms92_NP1,
+ms93_N, ms93_NP1,
+ms94_N, ms94_NP1,
+ms95_N, ms95_NP1,
+ms96_N, ms96_NP1,
+ms97_N, ms97_NP1,
+ms98_N, ms98_NP1,
+ms99_N, ms99_NP1,
+ms100_N, ms100_NP1,
+ms101_N, ms101_NP1,
+ms102_N, ms102_NP1,
+ms103_N, ms103_NP1,
+ms104_N, ms104_NP1,
+ms105_N, ms105_NP1,
+ms106_N, ms106_NP1,
+ms107_N, ms107_NP1,
+ms108_N, ms108_NP1,
+ms109_N, ms109_NP1,
+ms110_N, ms110_NP1,
+ms111_N, ms111_NP1,
+ms112_N, ms112_NP1,
+ms113_N, ms113_NP1,
+ms114_N, ms114_NP1,
+ms115_N, ms115_NP1,
+ms116_N, ms116_NP1,
+ms117_N, ms117_NP1,
+ms118_N, ms118_NP1,
+ms119_N, ms119_NP1,
+ms120_N, ms120_NP1,
+ms121_N, ms121_NP1,
+ms122_N, ms122_NP1,
+ms123_N, ms123_NP1,
+ms124_N, ms124_NP1,
+ms125_N, ms125_NP1,
+ms126_N, ms126_NP1,
+ms127_N, ms127_NP1,
+ms128_N, ms128_NP1,
+ms129_N, ms129_NP1,
+ms130_N, ms130_NP1,
+ms131_N, ms131_NP1,
+ms132_N, ms132_NP1,
+ms133_N, ms133_NP1,
+ms134_N, ms134_NP1,
+ms135_N, ms135_NP1,
+ms136_N, ms136_NP1,
+ms137_N, ms137_NP1,
+ms138_N, ms138_NP1,
+ms139_N, ms139_NP1,
+ms140_N, ms140_NP1,
+ms141_N, ms141_NP1,
+ms142_N, ms142_NP1,
+ms143_N, ms143_NP1,
+ms144_N, ms144_NP1,
+ms145_N, ms145_NP1,
+ms146_N, ms146_NP1,
+ms147_N, ms147_NP1,
+ms148_N, ms148_NP1,
+ms149_N, ms149_NP1,
+ms150_N, ms150_NP1,
+ms151_N, ms151_NP1,
+ms152_N, ms152_NP1,
+ms153_N, ms153_NP1,
+ms154_N, ms154_NP1,
+ms155_N, ms155_NP1,
+ms156_N, ms156_NP1,
+ms157_N, ms157_NP1,
+ms158_N, ms158_NP1,
+ms159_N, ms159_NP1,
+ms160_N, ms160_NP1,
+ms161_N, ms161_NP1,
+ms162_N, ms162_NP1,
+ms163_N, ms163_NP1,
+ms164_N, ms164_NP1,
+ms165_N, ms165_NP1,
+ms166_N, ms166_NP1,
+ms167_N, ms167_NP1,
+ms168_N, ms168_NP1,
+ms169_N, ms169_NP1,
+ms170_N, ms170_NP1,
+ms171_N, ms171_NP1,
+ms172_N, ms172_NP1,
+ms173_N, ms173_NP1,
+ms174_N, ms174_NP1,
+ms175_N, ms175_NP1,
+ms176_N, ms176_NP1,
+ms177_N, ms177_NP1,
+ms178_N, ms178_NP1,
+ms179_N, ms179_NP1,
+ms180_N, ms180_NP1,
+ms181_N, ms181_NP1,
+ms182_N, ms182_NP1,
+ms183_N, ms183_NP1,
+ms184_N, ms184_NP1,
+ms185_N, ms185_NP1,
+ms186_N, ms186_NP1,
+ms187_N, ms187_NP1,
+ms188_N, ms188_NP1,
+ms189_N, ms189_NP1;
+
+Teuchos::RCP<Epetra_Vector>
+md1_N, md1_NP1,
+md2_N, md2_NP1,
+md3_N, md3_NP1,
+md4_N, md4_NP1,
+md5_N, md5_NP1,
+md6_N, md6_NP1,
+md7_N, md7_NP1,
+md8_N, md8_NP1,
+md9_N, md9_NP1,
+md10_N, md10_NP1,
+md11_N, md11_NP1,
+md12_N, md12_NP1,
+md13_N, md13_NP1,
+md14_N, md14_NP1,
+md15_N, md15_NP1,
+md16_N, md16_NP1,
+md17_N, md17_NP1,
+md18_N, md18_NP1,
+md19_N, md19_NP1,
+md20_N, md20_NP1,
+md21_N, md21_NP1,
+md22_N, md22_NP1,
+md23_N, md23_NP1,
+md24_N, md24_NP1,
+md25_N, md25_NP1,
+md26_N, md26_NP1,
+md27_N, md27_NP1,
+md28_N, md28_NP1,
+md29_N, md29_NP1,
+md30_N, md30_NP1,
+md31_N, md31_NP1,
+md32_N, md32_NP1,
+md33_N, md33_NP1,
+md34_N, md34_NP1,
+md35_N, md35_NP1,
+md36_N, md36_NP1,
+md37_N, md37_NP1;
+
+/////// Bond Level /////////////////
+Teuchos::RCP<Epetra_Vector>
+Bms1_N, Bms1_NP1,
+Bms2_N, Bms2_NP1,
+Bms3_N, Bms3_NP1,
+Bms4_N, Bms4_NP1,
+Bms5_N, Bms5_NP1,
+Bms6_N, Bms6_NP1,
+Bms7_N, Bms7_NP1,
+Bms8_N, Bms8_NP1,
+Bms9_N, Bms9_NP1,
+Bms10_N, Bms10_NP1,
+Bms11_N, Bms11_NP1,
+Bms12_N, Bms12_NP1,
+Bms13_N, Bms13_NP1,
+Bms14_N, Bms14_NP1,
+Bms15_N, Bms15_NP1,
+Bms16_N, Bms16_NP1,
+Bms17_N, Bms17_NP1,
+Bms18_N, Bms18_NP1,
+Bms19_N, Bms19_NP1,
+Bms20_N, Bms20_NP1,
+Bms21_N, Bms21_NP1,
+Bms22_N, Bms22_NP1,
+Bms23_N, Bms23_NP1,
+Bms24_N, Bms24_NP1,
+Bms25_N, Bms25_NP1,
+Bms26_N, Bms26_NP1,
+Bms27_N, Bms27_NP1,
+Bms28_N, Bms28_NP1,
+Bms29_N, Bms29_NP1,
+Bms30_N, Bms30_NP1,
+Bms31_N, Bms31_NP1,
+Bms32_N, Bms32_NP1,
+Bms33_N, Bms33_NP1,
+Bms34_N, Bms34_NP1,
+Bms35_N, Bms35_NP1,
+Bms36_N, Bms36_NP1,
+Bms37_N, Bms37_NP1,
+Bms38_N, Bms38_NP1,
+Bms39_N, Bms39_NP1,
+Bms40_N, Bms40_NP1,
+Bms41_N, Bms41_NP1,
+Bms42_N, Bms42_NP1,
+Bms43_N, Bms43_NP1,
+Bms44_N, Bms44_NP1,
+Bms45_N, Bms45_NP1,
+Bms46_N, Bms46_NP1,
+Bms47_N, Bms47_NP1,
+Bms48_N, Bms48_NP1,
+Bms49_N, Bms49_NP1,
+Bms50_N, Bms50_NP1,
+Bms51_N, Bms51_NP1,
+Bms52_N, Bms52_NP1,
+Bms53_N, Bms53_NP1,
+Bms54_N, Bms54_NP1,
+Bms55_N, Bms55_NP1,
+Bms56_N, Bms56_NP1,
+Bms57_N, Bms57_NP1,
+Bms58_N, Bms58_NP1,
+Bms59_N, Bms59_NP1,
+Bms60_N, Bms60_NP1,
+Bms61_N, Bms61_NP1,
+Bms62_N, Bms62_NP1,
+Bms63_N, Bms63_NP1,
+Bms64_N, Bms64_NP1,
+Bms65_N, Bms65_NP1,
+Bms66_N, Bms66_NP1,
+Bms67_N, Bms67_NP1,
+Bms68_N, Bms68_NP1,
+Bms69_N, Bms69_NP1,
+Bms70_N, Bms70_NP1,
+Bms71_N, Bms71_NP1,
+Bms72_N, Bms72_NP1,
+Bms73_N, Bms73_NP1,
+Bms74_N, Bms74_NP1,
+Bms75_N, Bms75_NP1,
+Bms76_N, Bms76_NP1,
+Bms77_N, Bms77_NP1,
+Bms78_N, Bms78_NP1,
+Bms79_N, Bms79_NP1,
+Bms80_N, Bms80_NP1,
+Bms81_N, Bms81_NP1,
+Bms82_N, Bms82_NP1,
+Bms83_N, Bms83_NP1,
+Bms84_N, Bms84_NP1,
+Bms85_N, Bms85_NP1,
+Bms86_N, Bms86_NP1,
+Bms87_N, Bms87_NP1,
+Bms88_N, Bms88_NP1,
+Bms89_N, Bms89_NP1,
+Bms90_N, Bms90_NP1,
+Bms91_N, Bms91_NP1,
+Bms92_N, Bms92_NP1,
+Bms93_N, Bms93_NP1,
+Bms94_N, Bms94_NP1,
+Bms95_N, Bms95_NP1,
+Bms96_N, Bms96_NP1,
+Bms97_N, Bms97_NP1,
+Bms98_N, Bms98_NP1,
+Bms99_N, Bms99_NP1,
+Bms100_N, Bms100_NP1,
+Bms101_N, Bms101_NP1,
+Bms102_N, Bms102_NP1,
+Bms103_N, Bms103_NP1,
+Bms104_N, Bms104_NP1,
+Bms105_N, Bms105_NP1,
+Bms106_N, Bms106_NP1,
+Bms107_N, Bms107_NP1,
+Bms108_N, Bms108_NP1,
+Bms109_N, Bms109_NP1,
+Bms110_N, Bms110_NP1,
+Bms111_N, Bms111_NP1,
+Bms112_N, Bms112_NP1,
+Bms113_N, Bms113_NP1,
+Bms114_N, Bms114_NP1,
+Bms115_N, Bms115_NP1,
+Bms116_N, Bms116_NP1,
+Bms117_N, Bms117_NP1,
+Bms118_N, Bms118_NP1,
+Bms119_N, Bms119_NP1,
+Bms120_N, Bms120_NP1,
+Bms121_N, Bms121_NP1,
+Bms122_N, Bms122_NP1,
+Bms123_N, Bms123_NP1,
+Bms124_N, Bms124_NP1,
+Bms125_N, Bms125_NP1,
+Bms126_N, Bms126_NP1,
+Bms127_N, Bms127_NP1,
+Bms128_N, Bms128_NP1,
+Bms129_N, Bms129_NP1,
+Bms130_N, Bms130_NP1,
+Bms131_N, Bms131_NP1,
+Bms132_N, Bms132_NP1,
+Bms133_N, Bms133_NP1,
+Bms134_N, Bms134_NP1,
+Bms135_N, Bms135_NP1,
+Bms136_N, Bms136_NP1,
+Bms137_N, Bms137_NP1,
+Bms138_N, Bms138_NP1,
+Bms139_N, Bms139_NP1,
+Bms140_N, Bms140_NP1,
+Bms141_N, Bms141_NP1,
+Bms142_N, Bms142_NP1,
+Bms143_N, Bms143_NP1,
+Bms144_N, Bms144_NP1,
+Bms145_N, Bms145_NP1,
+Bms146_N, Bms146_NP1,
+Bms147_N, Bms147_NP1,
+Bms148_N, Bms148_NP1,
+Bms149_N, Bms149_NP1,
+Bms150_N, Bms150_NP1,
+Bms151_N, Bms151_NP1,
+Bms152_N, Bms152_NP1,
+Bms153_N, Bms153_NP1,
+Bms154_N, Bms154_NP1,
+Bms155_N, Bms155_NP1,
+Bms156_N, Bms156_NP1,
+Bms157_N, Bms157_NP1,
+Bms158_N, Bms158_NP1,
+Bms159_N, Bms159_NP1,
+Bms160_N, Bms160_NP1,
+Bms161_N, Bms161_NP1,
+Bms162_N, Bms162_NP1,
+Bms163_N, Bms163_NP1,
+Bms164_N, Bms164_NP1,
+Bms165_N, Bms165_NP1,
+Bms166_N, Bms166_NP1,
+Bms167_N, Bms167_NP1,
+Bms168_N, Bms168_NP1,
+Bms169_N, Bms169_NP1,
+Bms170_N, Bms170_NP1,
+Bms171_N, Bms171_NP1,
+Bms172_N, Bms172_NP1,
+Bms173_N, Bms173_NP1,
+Bms174_N, Bms174_NP1,
+Bms175_N, Bms175_NP1,
+Bms176_N, Bms176_NP1,
+Bms177_N, Bms177_NP1,
+Bms178_N, Bms178_NP1,
+Bms179_N, Bms179_NP1,
+Bms180_N, Bms180_NP1,
+Bms181_N, Bms181_NP1,
+Bms182_N, Bms182_NP1,
+Bms183_N, Bms183_NP1,
+Bms184_N, Bms184_NP1,
+Bms185_N, Bms185_NP1,
+Bms186_N, Bms186_NP1,
+Bms187_N, Bms187_NP1,
+Bms188_N, Bms188_NP1,
+Bms189_N, Bms189_NP1;
+
+Teuchos::RCP<Epetra_Vector>
+Bmd1_N, Bmd1_NP1,
+Bmd2_N, Bmd2_NP1,
+Bmd3_N, Bmd3_NP1,
+Bmd4_N, Bmd4_NP1,
+Bmd5_N, Bmd5_NP1,
+Bmd6_N, Bmd6_NP1,
+Bmd7_N, Bmd7_NP1,
+Bmd8_N, Bmd8_NP1,
+Bmd9_N, Bmd9_NP1,
+Bmd10_N, Bmd10_NP1,
+Bmd11_N, Bmd11_NP1,
+Bmd12_N, Bmd12_NP1,
+Bmd13_N, Bmd13_NP1,
+Bmd14_N, Bmd14_NP1,
+Bmd15_N, Bmd15_NP1,
+Bmd16_N, Bmd16_NP1,
+Bmd17_N, Bmd17_NP1,
+Bmd18_N, Bmd18_NP1,
+Bmd19_N, Bmd19_NP1,
+Bmd20_N, Bmd20_NP1,
+Bmd21_N, Bmd21_NP1,
+Bmd22_N, Bmd22_NP1,
+Bmd23_N, Bmd23_NP1,
+Bmd24_N, Bmd24_NP1,
+Bmd25_N, Bmd25_NP1,
+Bmd26_N, Bmd26_NP1,
+Bmd27_N, Bmd27_NP1,
+Bmd28_N, Bmd28_NP1,
+Bmd29_N, Bmd29_NP1,
+Bmd30_N, Bmd30_NP1,
+Bmd31_N, Bmd31_NP1,
+Bmd32_N, Bmd32_NP1,
+Bmd33_N, Bmd33_NP1,
+Bmd34_N, Bmd34_NP1,
+Bmd35_N, Bmd35_NP1,
+Bmd36_N, Bmd36_NP1,
+Bmd37_N, Bmd37_NP1;
+
+Teuchos::RCP<Epetra_Vector> weightedDamage,  // Element
+internalEnergy_N, internalEnergy_NP1, // Element
+inelasticEnergy_N, inelasticEnergy_NP1, // Element
+BinternalEnergy_N, BinternalEnergy_NP1, // Bond
+BinelasticEnergy_N, BinelasticEnergy_NP1, // Bond
+BweightedDamage; // Bond
+
+  FILESTREAM << "PeridigmRestarts/RestartElementMicrostates." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream MS;
+  MS.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartElementDamage." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream MD;
+  MD.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartBondMicrostates." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream BMS;
+  BMS.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartBondDamage." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream BMD;
+  BMD.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartInternalEnergy." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ofstream IE;
+  IE.open(FILENAME, ios::out | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+
+  // Block iterator loop
+  Teuchos::RCP< std::vector<PeridigmNS::Block> > blocks = peridigm->getBlocks();
+  for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+    std::string blockName = blockIt->getName();
+    Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+
+    int m_microState1FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_1");
+    int m_microState2FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_2");
+    int m_microState3FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_3");
+    int m_microState4FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_4");
+    int m_microState5FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_5");
+    int m_microState6FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_6");
+    int m_microState7FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_7");
+    int m_microState8FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_8");
+    int m_microState9FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_9");
+    int m_microState10FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_10");
+    int m_microState11FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_11");
+    int m_microState12FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_12");
+    int m_microState13FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_13");
+    int m_microState14FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_14");
+    int m_microState15FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_15");
+    int m_microState16FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_16");
+    int m_microState17FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_17");
+    int m_microState18FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_18");
+    int m_microState19FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_19");
+    int m_microState20FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_20");
+    int m_microState21FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_21");
+    int m_microState22FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_22");
+    int m_microState23FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_23");
+    int m_microState24FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_24");
+    int m_microState25FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_25");
+    int m_microState26FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_26");
+    int m_microState27FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_27");
+    int m_microState28FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_28");
+    int m_microState29FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_29");
+    int m_microState30FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_30");
+    int m_microState31FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_31");
+    int m_microState32FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_32");
+    int m_microState33FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_33");
+    int m_microState34FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_34");
+    int m_microState35FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_35");
+    int m_microState36FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_36");
+    int m_microState37FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_37");
+    int m_microState38FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_38");
+    int m_microState39FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_39");
+    int m_microState40FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_40");
+    int m_microState41FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_41");
+    int m_microState42FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_42");
+    int m_microState43FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_43");
+    int m_microState44FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_44");
+    int m_microState45FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_45");
+    int m_microState46FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_46");
+    int m_microState47FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_47");
+    int m_microState48FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_48");
+    int m_microState49FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_49");
+    int m_microState50FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_50");
+    int m_microState51FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_51");
+    int m_microState52FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_52");
+    int m_microState53FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_53");
+    int m_microState54FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_54");
+    int m_microState55FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_55");
+    int m_microState56FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_56");
+    int m_microState57FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_57");
+    int m_microState58FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_58");
+    int m_microState59FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_59");
+    int m_microState60FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_60");
+    int m_microState61FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_61");
+    int m_microState62FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_62");
+    int m_microState63FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_63");
+    int m_microState64FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_64");
+    int m_microState65FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_65");
+    int m_microState66FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_66");
+    int m_microState67FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_67");
+    int m_microState68FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_68");
+    int m_microState69FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_69");
+    int m_microState70FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_70");
+    int m_microState71FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_71");
+    int m_microState72FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_72");
+    int m_microState73FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_73");
+    int m_microState74FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_74");
+    int m_microState75FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_75");
+    int m_microState76FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_76");
+    int m_microState77FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_77");
+    int m_microState78FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_78");
+    int m_microState79FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_79");
+    int m_microState80FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_80");
+    int m_microState81FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_81");
+    int m_microState82FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_82");
+    int m_microState83FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_83");
+    int m_microState84FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_84");
+    int m_microState85FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_85");
+    int m_microState86FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_86");
+    int m_microState87FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_87");
+    int m_microState88FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_88");
+    int m_microState89FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_89");
+    int m_microState90FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_90");
+    int m_microState91FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_91");
+    int m_microState92FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_92");
+    int m_microState93FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_93");
+    int m_microState94FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_94");
+    int m_microState95FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_95");
+    int m_microState96FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_96");
+    int m_microState97FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_97");
+    int m_microState98FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_98");
+    int m_microState99FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_99");
+    int m_microState100FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_100");
+    int m_microState101FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_101");
+    int m_microState102FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_102");
+    int m_microState103FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_103");
+    int m_microState104FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_104");
+    int m_microState105FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_105");
+    int m_microState106FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_106");
+    int m_microState107FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_107");
+    int m_microState108FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_108");
+    int m_microState109FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_109");
+    int m_microState110FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_110");
+    int m_microState111FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_111");
+    int m_microState112FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_112");
+    int m_microState113FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_113");
+    int m_microState114FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_114");
+    int m_microState115FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_115");
+    int m_microState116FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_116");
+    int m_microState117FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_117");
+    int m_microState118FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_118");
+    int m_microState119FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_119");
+    int m_microState120FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_120");
+    int m_microState121FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_121");
+    int m_microState122FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_122");
+    int m_microState123FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_123");
+    int m_microState124FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_124");
+    int m_microState125FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_125");
+    int m_microState126FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_126");
+    int m_microState127FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_127");
+    int m_microState128FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_128");
+    int m_microState129FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_129");
+    int m_microState130FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_130");
+    int m_microState131FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_131");
+    int m_microState132FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_132");
+    int m_microState133FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_133");
+    int m_microState134FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_134");
+    int m_microState135FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_135");
+    int m_microState136FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_136");
+    int m_microState137FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_137");
+    int m_microState138FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_138");
+    int m_microState139FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_139");
+    int m_microState140FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_140");
+    int m_microState141FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_141");
+    int m_microState142FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_142");
+    int m_microState143FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_143");
+    int m_microState144FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_144");
+    int m_microState145FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_145");
+    int m_microState146FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_146");
+    int m_microState147FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_147");
+    int m_microState148FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_148");
+    int m_microState149FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_149");
+    int m_microState150FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_150");
+    int m_microState151FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_151");
+    int m_microState152FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_152");
+    int m_microState153FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_153");
+    int m_microState154FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_154");
+    int m_microState155FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_155");
+    int m_microState156FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_156");
+    int m_microState157FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_157");
+    int m_microState158FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_158");
+    int m_microState159FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_159");
+    int m_microState160FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_160");
+    int m_microState161FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_161");
+    int m_microState162FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_162");
+    int m_microState163FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_163");
+    int m_microState164FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_164");
+    int m_microState165FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_165");
+    int m_microState166FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_166");
+    int m_microState167FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_167");
+    int m_microState168FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_168");
+    int m_microState169FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_169");
+    int m_microState170FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_170");
+    int m_microState171FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_171");
+    int m_microState172FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_172");
+    int m_microState173FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_173");
+    int m_microState174FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_174");
+    int m_microState175FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_175");
+    int m_microState176FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_176");
+    int m_microState177FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_177");
+    int m_microState178FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_178");
+    int m_microState179FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_179");
+    int m_microState180FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_180");
+    int m_microState181FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_181");
+    int m_microState182FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_182");
+    int m_microState183FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_183");
+    int m_microState184FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_184");
+    int m_microState185FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_185");
+    int m_microState186FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_186");
+    int m_microState187FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_187");
+    int m_microState188FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_188");
+    int m_microState189FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_189");
+
+    int m_microDamage1FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_1");
+    int m_microDamage2FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_2");
+    int m_microDamage3FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_3");
+    int m_microDamage4FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_4");
+    int m_microDamage5FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_5");
+    int m_microDamage6FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_6");
+    int m_microDamage7FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_7");
+    int m_microDamage8FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_8");
+    int m_microDamage9FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_9");
+    int m_microDamage10FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_10");
+    int m_microDamage11FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_11");
+    int m_microDamage12FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_12");
+    int m_microDamage13FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_13");
+    int m_microDamage14FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_14");
+    int m_microDamage15FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_15");
+    int m_microDamage16FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_16");
+    int m_microDamage17FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_17");
+    int m_microDamage18FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_18");
+    int m_microDamage19FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_19");
+    int m_microDamage20FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_20");
+    int m_microDamage21FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_21");
+    int m_microDamage22FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_22");
+    int m_microDamage23FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_23");
+    int m_microDamage24FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_24");
+    int m_microDamage25FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_25");
+    int m_microDamage26FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_26");
+    int m_microDamage27FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_27");
+    int m_microDamage28FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_28");
+    int m_microDamage29FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_29");
+    int m_microDamage30FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_30");
+    int m_microDamage31FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_31");
+    int m_microDamage32FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_32");
+    int m_microDamage33FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_33");
+    int m_microDamage34FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_34");
+    int m_microDamage35FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_35");
+    int m_microDamage36FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_36");
+    int m_microDamage37FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_37");
+
+
+    // Bond Level Quantities
+
+    int m_bondLevelMicroState1FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_1");
+    int m_bondLevelMicroState2FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_2");
+    int m_bondLevelMicroState3FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_3");
+    int m_bondLevelMicroState4FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_4");
+    int m_bondLevelMicroState5FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_5");
+    int m_bondLevelMicroState6FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_6");
+    int m_bondLevelMicroState7FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_7");
+    int m_bondLevelMicroState8FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_8");
+    int m_bondLevelMicroState9FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_9");
+    int m_bondLevelMicroState10FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_10");
+    int m_bondLevelMicroState11FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_11");
+    int m_bondLevelMicroState12FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_12");
+    int m_bondLevelMicroState13FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_13");
+    int m_bondLevelMicroState14FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_14");
+    int m_bondLevelMicroState15FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_15");
+    int m_bondLevelMicroState16FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_16");
+    int m_bondLevelMicroState17FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_17");
+    int m_bondLevelMicroState18FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_18");
+    int m_bondLevelMicroState19FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_19");
+    int m_bondLevelMicroState20FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_20");
+    int m_bondLevelMicroState21FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_21");
+    int m_bondLevelMicroState22FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_22");
+    int m_bondLevelMicroState23FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_23");
+    int m_bondLevelMicroState24FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_24");
+    int m_bondLevelMicroState25FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_25");
+    int m_bondLevelMicroState26FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_26");
+    int m_bondLevelMicroState27FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_27");
+    int m_bondLevelMicroState28FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_28");
+    int m_bondLevelMicroState29FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_29");
+    int m_bondLevelMicroState30FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_30");
+    int m_bondLevelMicroState31FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_31");
+    int m_bondLevelMicroState32FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_32");
+    int m_bondLevelMicroState33FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_33");
+    int m_bondLevelMicroState34FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_34");
+    int m_bondLevelMicroState35FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_35");
+    int m_bondLevelMicroState36FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_36");
+    int m_bondLevelMicroState37FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_37");
+    int m_bondLevelMicroState38FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_38");
+    int m_bondLevelMicroState39FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_39");
+    int m_bondLevelMicroState40FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_40");
+    int m_bondLevelMicroState41FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_41");
+    int m_bondLevelMicroState42FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_42");
+    int m_bondLevelMicroState43FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_43");
+    int m_bondLevelMicroState44FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_44");
+    int m_bondLevelMicroState45FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_45");
+    int m_bondLevelMicroState46FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_46");
+    int m_bondLevelMicroState47FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_47");
+    int m_bondLevelMicroState48FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_48");
+    int m_bondLevelMicroState49FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_49");
+    int m_bondLevelMicroState50FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_50");
+    int m_bondLevelMicroState51FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_51");
+    int m_bondLevelMicroState52FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_52");
+    int m_bondLevelMicroState53FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_53");
+    int m_bondLevelMicroState54FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_54");
+    int m_bondLevelMicroState55FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_55");
+    int m_bondLevelMicroState56FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_56");
+    int m_bondLevelMicroState57FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_57");
+    int m_bondLevelMicroState58FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_58");
+    int m_bondLevelMicroState59FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_59");
+    int m_bondLevelMicroState60FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_60");
+    int m_bondLevelMicroState61FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_61");
+    int m_bondLevelMicroState62FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_62");
+    int m_bondLevelMicroState63FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_63");
+    int m_bondLevelMicroState64FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_64");
+    int m_bondLevelMicroState65FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_65");
+    int m_bondLevelMicroState66FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_66");
+    int m_bondLevelMicroState67FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_67");
+    int m_bondLevelMicroState68FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_68");
+    int m_bondLevelMicroState69FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_69");
+    int m_bondLevelMicroState70FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_70");
+    int m_bondLevelMicroState71FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_71");
+    int m_bondLevelMicroState72FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_72");
+    int m_bondLevelMicroState73FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_73");
+    int m_bondLevelMicroState74FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_74");
+    int m_bondLevelMicroState75FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_75");
+    int m_bondLevelMicroState76FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_76");
+    int m_bondLevelMicroState77FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_77");
+    int m_bondLevelMicroState78FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_78");
+    int m_bondLevelMicroState79FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_79");
+    int m_bondLevelMicroState80FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_80");
+    int m_bondLevelMicroState81FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_81");
+    int m_bondLevelMicroState82FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_82");
+    int m_bondLevelMicroState83FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_83");
+    int m_bondLevelMicroState84FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_84");
+    int m_bondLevelMicroState85FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_85");
+    int m_bondLevelMicroState86FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_86");
+    int m_bondLevelMicroState87FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_87");
+    int m_bondLevelMicroState88FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_88");
+    int m_bondLevelMicroState89FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_89");
+    int m_bondLevelMicroState90FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_90");
+    int m_bondLevelMicroState91FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_91");
+    int m_bondLevelMicroState92FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_92");
+    int m_bondLevelMicroState93FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_93");
+    int m_bondLevelMicroState94FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_94");
+    int m_bondLevelMicroState95FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_95");
+    int m_bondLevelMicroState96FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_96");
+    int m_bondLevelMicroState97FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_97");
+    int m_bondLevelMicroState98FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_98");
+    int m_bondLevelMicroState99FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_99");
+    int m_bondLevelMicroState100FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_100");
+    int m_bondLevelMicroState101FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_101");
+    int m_bondLevelMicroState102FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_102");
+    int m_bondLevelMicroState103FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_103");
+    int m_bondLevelMicroState104FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_104");
+    int m_bondLevelMicroState105FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_105");
+    int m_bondLevelMicroState106FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_106");
+    int m_bondLevelMicroState107FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_107");
+    int m_bondLevelMicroState108FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_108");
+    int m_bondLevelMicroState109FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_109");
+    int m_bondLevelMicroState110FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_110");
+    int m_bondLevelMicroState111FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_111");
+    int m_bondLevelMicroState112FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_112");
+    int m_bondLevelMicroState113FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_113");
+    int m_bondLevelMicroState114FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_114");
+    int m_bondLevelMicroState115FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_115");
+    int m_bondLevelMicroState116FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_116");
+    int m_bondLevelMicroState117FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_117");
+    int m_bondLevelMicroState118FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_118");
+    int m_bondLevelMicroState119FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_119");
+    int m_bondLevelMicroState120FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_120");
+    int m_bondLevelMicroState121FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_121");
+    int m_bondLevelMicroState122FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_122");
+    int m_bondLevelMicroState123FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_123");
+    int m_bondLevelMicroState124FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_124");
+    int m_bondLevelMicroState125FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_125");
+    int m_bondLevelMicroState126FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_126");
+    int m_bondLevelMicroState127FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_127");
+    int m_bondLevelMicroState128FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_128");
+    int m_bondLevelMicroState129FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_129");
+    int m_bondLevelMicroState130FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_130");
+    int m_bondLevelMicroState131FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_131");
+    int m_bondLevelMicroState132FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_132");
+    int m_bondLevelMicroState133FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_133");
+    int m_bondLevelMicroState134FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_134");
+    int m_bondLevelMicroState135FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_135");
+    int m_bondLevelMicroState136FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_136");
+    int m_bondLevelMicroState137FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_137");
+    int m_bondLevelMicroState138FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_138");
+    int m_bondLevelMicroState139FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_139");
+    int m_bondLevelMicroState140FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_140");
+    int m_bondLevelMicroState141FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_141");
+    int m_bondLevelMicroState142FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_142");
+    int m_bondLevelMicroState143FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_143");
+    int m_bondLevelMicroState144FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_144");
+    int m_bondLevelMicroState145FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_145");
+    int m_bondLevelMicroState146FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_146");
+    int m_bondLevelMicroState147FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_147");
+    int m_bondLevelMicroState148FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_148");
+    int m_bondLevelMicroState149FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_149");
+    int m_bondLevelMicroState150FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_150");
+    int m_bondLevelMicroState151FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_151");
+    int m_bondLevelMicroState152FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_152");
+    int m_bondLevelMicroState153FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_153");
+    int m_bondLevelMicroState154FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_154");
+    int m_bondLevelMicroState155FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_155");
+    int m_bondLevelMicroState156FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_156");
+    int m_bondLevelMicroState157FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_157");
+    int m_bondLevelMicroState158FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_158");
+    int m_bondLevelMicroState159FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_159");
+    int m_bondLevelMicroState160FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_160");
+    int m_bondLevelMicroState161FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_161");
+    int m_bondLevelMicroState162FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_162");
+    int m_bondLevelMicroState163FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_163");
+    int m_bondLevelMicroState164FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_164");
+    int m_bondLevelMicroState165FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_165");
+    int m_bondLevelMicroState166FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_166");
+    int m_bondLevelMicroState167FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_167");
+    int m_bondLevelMicroState168FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_168");
+    int m_bondLevelMicroState169FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_169");
+    int m_bondLevelMicroState170FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_170");
+    int m_bondLevelMicroState171FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_171");
+    int m_bondLevelMicroState172FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_172");
+    int m_bondLevelMicroState173FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_173");
+    int m_bondLevelMicroState174FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_174");
+    int m_bondLevelMicroState175FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_175");
+    int m_bondLevelMicroState176FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_176");
+    int m_bondLevelMicroState177FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_177");
+    int m_bondLevelMicroState178FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_178");
+    int m_bondLevelMicroState179FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_179");
+    int m_bondLevelMicroState180FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_180");
+    int m_bondLevelMicroState181FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_181");
+    int m_bondLevelMicroState182FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_182");
+    int m_bondLevelMicroState183FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_183");
+    int m_bondLevelMicroState184FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_184");
+    int m_bondLevelMicroState185FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_185");
+    int m_bondLevelMicroState186FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_186");
+    int m_bondLevelMicroState187FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_187");
+    int m_bondLevelMicroState188FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_188");
+    int m_bondLevelMicroState189FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_189");
+
+    int m_bondLevelMicroDamage1FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_1");
+    int m_bondLevelMicroDamage2FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_2");
+    int m_bondLevelMicroDamage3FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_3");
+    int m_bondLevelMicroDamage4FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_4");
+    int m_bondLevelMicroDamage5FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_5");
+    int m_bondLevelMicroDamage6FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_6");
+    int m_bondLevelMicroDamage7FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_7");
+    int m_bondLevelMicroDamage8FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_8");
+    int m_bondLevelMicroDamage9FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_9");
+    int m_bondLevelMicroDamage10FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_10");
+    int m_bondLevelMicroDamage11FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_11");
+    int m_bondLevelMicroDamage12FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_12");
+    int m_bondLevelMicroDamage13FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_13");
+    int m_bondLevelMicroDamage14FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_14");
+    int m_bondLevelMicroDamage15FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_15");
+    int m_bondLevelMicroDamage16FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_16");
+    int m_bondLevelMicroDamage17FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_17");
+    int m_bondLevelMicroDamage18FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_18");
+    int m_bondLevelMicroDamage19FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_19");
+    int m_bondLevelMicroDamage20FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_20");
+    int m_bondLevelMicroDamage21FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_21");
+    int m_bondLevelMicroDamage22FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_22");
+    int m_bondLevelMicroDamage23FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_23");
+    int m_bondLevelMicroDamage24FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_24");
+    int m_bondLevelMicroDamage25FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_25");
+    int m_bondLevelMicroDamage26FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_26");
+    int m_bondLevelMicroDamage27FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_27");
+    int m_bondLevelMicroDamage28FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_28");
+    int m_bondLevelMicroDamage29FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_29");
+    int m_bondLevelMicroDamage30FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_30");
+    int m_bondLevelMicroDamage31FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_31");
+    int m_bondLevelMicroDamage32FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_32");
+    int m_bondLevelMicroDamage33FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_33");
+    int m_bondLevelMicroDamage34FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_34");
+    int m_bondLevelMicroDamage35FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_35");
+    int m_bondLevelMicroDamage36FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_36");
+    int m_bondLevelMicroDamage37FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_37");
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    int m_weightedDamageFieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Weighted_Damage");
+    int m_internalEnergyFieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Internal_Energy");
+    int m_inelasticEnergyFieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Inelastic_Energy");
+    int m_bondLevelinternalEnergyFieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Internal_Energy");
+    int m_bondLevelInelasticEnergyFieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Inelastic_Energy");
+    int m_bondLevelWeightedDamageFieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Bond_Weighted_Damage");
+
+    /// Getting data from data manager
+    ms1_N            = blockIt->getData( m_microState1FieldId                , PeridigmField::STEP_N);
+    ms1_NP1          = blockIt->getData( m_microState1FieldId                , PeridigmField::STEP_NP1);
+    ms2_N            = blockIt->getData( m_microState2FieldId                , PeridigmField::STEP_N);
+    ms2_NP1          = blockIt->getData( m_microState2FieldId                , PeridigmField::STEP_NP1);
+    ms3_N            = blockIt->getData( m_microState3FieldId                , PeridigmField::STEP_N);
+    ms3_NP1          = blockIt->getData( m_microState3FieldId                , PeridigmField::STEP_NP1);
+    ms4_N            = blockIt->getData( m_microState4FieldId                , PeridigmField::STEP_N);
+    ms4_NP1          = blockIt->getData( m_microState4FieldId                , PeridigmField::STEP_NP1);
+    ms5_N            = blockIt->getData( m_microState5FieldId                , PeridigmField::STEP_N);
+    ms5_NP1          = blockIt->getData( m_microState5FieldId                , PeridigmField::STEP_NP1);
+    ms6_N            = blockIt->getData( m_microState6FieldId                , PeridigmField::STEP_N);
+    ms6_NP1          = blockIt->getData( m_microState6FieldId                , PeridigmField::STEP_NP1);
+    ms7_N            = blockIt->getData( m_microState7FieldId                , PeridigmField::STEP_N);
+    ms7_NP1          = blockIt->getData( m_microState7FieldId                , PeridigmField::STEP_NP1);
+    ms8_N            = blockIt->getData( m_microState8FieldId                , PeridigmField::STEP_N);
+    ms8_NP1          = blockIt->getData( m_microState8FieldId                , PeridigmField::STEP_NP1);
+    ms9_N            = blockIt->getData( m_microState9FieldId                , PeridigmField::STEP_N);
+    ms9_NP1          = blockIt->getData( m_microState9FieldId                , PeridigmField::STEP_NP1);
+    ms10_N           = blockIt->getData( m_microState10FieldId                , PeridigmField::STEP_N);
+    ms10_NP1         = blockIt->getData( m_microState10FieldId                , PeridigmField::STEP_NP1);
+
+    ms11_N            = blockIt->getData( m_microState11FieldId                , PeridigmField::STEP_N);
+    ms11_NP1          = blockIt->getData( m_microState11FieldId                , PeridigmField::STEP_NP1);
+    ms12_N            = blockIt->getData( m_microState12FieldId                , PeridigmField::STEP_N);
+    ms12_NP1          = blockIt->getData( m_microState12FieldId                , PeridigmField::STEP_NP1);
+    ms13_N            = blockIt->getData( m_microState13FieldId                , PeridigmField::STEP_N);
+    ms13_NP1          = blockIt->getData( m_microState13FieldId                , PeridigmField::STEP_NP1);
+    ms14_N            = blockIt->getData( m_microState14FieldId                , PeridigmField::STEP_N);
+    ms14_NP1          = blockIt->getData( m_microState14FieldId                , PeridigmField::STEP_NP1);
+    ms15_N            = blockIt->getData( m_microState15FieldId                , PeridigmField::STEP_N);
+    ms15_NP1          = blockIt->getData( m_microState15FieldId                , PeridigmField::STEP_NP1);
+    ms16_N            = blockIt->getData( m_microState16FieldId                , PeridigmField::STEP_N);
+    ms16_NP1          = blockIt->getData( m_microState16FieldId                , PeridigmField::STEP_NP1);
+    ms17_N            = blockIt->getData( m_microState17FieldId                , PeridigmField::STEP_N);
+    ms17_NP1          = blockIt->getData( m_microState17FieldId                , PeridigmField::STEP_NP1);
+    ms18_N            = blockIt->getData( m_microState18FieldId                , PeridigmField::STEP_N);
+    ms18_NP1          = blockIt->getData( m_microState18FieldId                , PeridigmField::STEP_NP1);
+    ms19_N            = blockIt->getData( m_microState19FieldId                , PeridigmField::STEP_N);
+    ms19_NP1          = blockIt->getData( m_microState19FieldId                , PeridigmField::STEP_NP1);
+    ms20_N           = blockIt->getData( m_microState20FieldId                , PeridigmField::STEP_N);
+    ms20_NP1         = blockIt->getData( m_microState20FieldId                , PeridigmField::STEP_NP1);
+
+    ms21_N            = blockIt->getData( m_microState21FieldId                , PeridigmField::STEP_N);
+    ms21_NP1          = blockIt->getData( m_microState21FieldId                , PeridigmField::STEP_NP1);
+    ms22_N            = blockIt->getData( m_microState22FieldId                , PeridigmField::STEP_N);
+    ms22_NP1          = blockIt->getData( m_microState22FieldId                , PeridigmField::STEP_NP1);
+    ms23_N            = blockIt->getData( m_microState23FieldId                , PeridigmField::STEP_N);
+    ms23_NP1          = blockIt->getData( m_microState23FieldId                , PeridigmField::STEP_NP1);
+    ms24_N            = blockIt->getData( m_microState24FieldId                , PeridigmField::STEP_N);
+    ms24_NP1          = blockIt->getData( m_microState24FieldId                , PeridigmField::STEP_NP1);
+    ms25_N            = blockIt->getData( m_microState25FieldId                , PeridigmField::STEP_N);
+    ms25_NP1          = blockIt->getData( m_microState25FieldId                , PeridigmField::STEP_NP1);
+    ms26_N            = blockIt->getData( m_microState26FieldId                , PeridigmField::STEP_N);
+    ms26_NP1          = blockIt->getData( m_microState26FieldId                , PeridigmField::STEP_NP1);
+    ms27_N            = blockIt->getData( m_microState27FieldId                , PeridigmField::STEP_N);
+    ms27_NP1          = blockIt->getData( m_microState27FieldId                , PeridigmField::STEP_NP1);
+    ms28_N            = blockIt->getData( m_microState28FieldId                , PeridigmField::STEP_N);
+    ms28_NP1          = blockIt->getData( m_microState28FieldId                , PeridigmField::STEP_NP1);
+    ms29_N            = blockIt->getData( m_microState29FieldId                , PeridigmField::STEP_N);
+    ms29_NP1          = blockIt->getData( m_microState29FieldId                , PeridigmField::STEP_NP1);
+    ms30_N           = blockIt->getData( m_microState30FieldId                , PeridigmField::STEP_N);
+    ms30_NP1         = blockIt->getData( m_microState30FieldId                , PeridigmField::STEP_NP1);
+
+    ms31_N            = blockIt->getData( m_microState31FieldId                , PeridigmField::STEP_N);
+    ms31_NP1          = blockIt->getData( m_microState31FieldId                , PeridigmField::STEP_NP1);
+    ms32_N            = blockIt->getData( m_microState32FieldId                , PeridigmField::STEP_N);
+    ms32_NP1          = blockIt->getData( m_microState32FieldId                , PeridigmField::STEP_NP1);
+    ms33_N            = blockIt->getData( m_microState33FieldId                , PeridigmField::STEP_N);
+    ms33_NP1          = blockIt->getData( m_microState33FieldId                , PeridigmField::STEP_NP1);
+    ms34_N            = blockIt->getData( m_microState34FieldId                , PeridigmField::STEP_N);
+    ms34_NP1          = blockIt->getData( m_microState34FieldId                , PeridigmField::STEP_NP1);
+    ms35_N            = blockIt->getData( m_microState35FieldId                , PeridigmField::STEP_N);
+    ms35_NP1          = blockIt->getData( m_microState35FieldId                , PeridigmField::STEP_NP1);
+    ms36_N            = blockIt->getData( m_microState36FieldId                , PeridigmField::STEP_N);
+    ms36_NP1          = blockIt->getData( m_microState36FieldId                , PeridigmField::STEP_NP1);
+    ms37_N            = blockIt->getData( m_microState37FieldId                , PeridigmField::STEP_N);
+    ms37_NP1          = blockIt->getData( m_microState37FieldId                , PeridigmField::STEP_NP1);
+    ms38_N            = blockIt->getData( m_microState38FieldId                , PeridigmField::STEP_N);
+    ms38_NP1          = blockIt->getData( m_microState38FieldId                , PeridigmField::STEP_NP1);
+    ms39_N            = blockIt->getData( m_microState39FieldId                , PeridigmField::STEP_N);
+    ms39_NP1          = blockIt->getData( m_microState39FieldId                , PeridigmField::STEP_NP1);
+    ms40_N           = blockIt->getData( m_microState40FieldId                , PeridigmField::STEP_N);
+    ms40_NP1         = blockIt->getData( m_microState40FieldId                , PeridigmField::STEP_NP1);
+
+    ms41_N            = blockIt->getData( m_microState41FieldId                , PeridigmField::STEP_N);
+    ms41_NP1          = blockIt->getData( m_microState41FieldId                , PeridigmField::STEP_NP1);
+    ms42_N            = blockIt->getData( m_microState42FieldId                , PeridigmField::STEP_N);
+    ms42_NP1          = blockIt->getData( m_microState42FieldId                , PeridigmField::STEP_NP1);
+    ms43_N            = blockIt->getData( m_microState43FieldId                , PeridigmField::STEP_N);
+    ms43_NP1          = blockIt->getData( m_microState43FieldId                , PeridigmField::STEP_NP1);
+    ms44_N            = blockIt->getData( m_microState44FieldId                , PeridigmField::STEP_N);
+    ms44_NP1          = blockIt->getData( m_microState44FieldId                , PeridigmField::STEP_NP1);
+    ms45_N            = blockIt->getData( m_microState45FieldId                , PeridigmField::STEP_N);
+    ms45_NP1          = blockIt->getData( m_microState45FieldId                , PeridigmField::STEP_NP1);
+    ms46_N            = blockIt->getData( m_microState46FieldId                , PeridigmField::STEP_N);
+    ms46_NP1          = blockIt->getData( m_microState46FieldId                , PeridigmField::STEP_NP1);
+    ms47_N            = blockIt->getData( m_microState47FieldId                , PeridigmField::STEP_N);
+    ms47_NP1          = blockIt->getData( m_microState47FieldId                , PeridigmField::STEP_NP1);
+    ms48_N            = blockIt->getData( m_microState48FieldId                , PeridigmField::STEP_N);
+    ms48_NP1          = blockIt->getData( m_microState48FieldId                , PeridigmField::STEP_NP1);
+    ms49_N            = blockIt->getData( m_microState49FieldId                , PeridigmField::STEP_N);
+    ms49_NP1          = blockIt->getData( m_microState49FieldId                , PeridigmField::STEP_NP1);
+    ms50_N           = blockIt->getData( m_microState50FieldId                , PeridigmField::STEP_N);
+    ms50_NP1         = blockIt->getData( m_microState50FieldId                , PeridigmField::STEP_NP1);
+
+    ms51_N            = blockIt->getData( m_microState51FieldId                , PeridigmField::STEP_N);
+    ms51_NP1          = blockIt->getData( m_microState51FieldId                , PeridigmField::STEP_NP1);
+    ms52_N            = blockIt->getData( m_microState52FieldId                , PeridigmField::STEP_N);
+    ms52_NP1          = blockIt->getData( m_microState52FieldId                , PeridigmField::STEP_NP1);
+    ms53_N            = blockIt->getData( m_microState53FieldId                , PeridigmField::STEP_N);
+    ms53_NP1          = blockIt->getData( m_microState53FieldId                , PeridigmField::STEP_NP1);
+    ms54_N            = blockIt->getData( m_microState54FieldId                , PeridigmField::STEP_N);
+    ms54_NP1          = blockIt->getData( m_microState54FieldId                , PeridigmField::STEP_NP1);
+    ms55_N            = blockIt->getData( m_microState55FieldId                , PeridigmField::STEP_N);
+    ms55_NP1          = blockIt->getData( m_microState55FieldId                , PeridigmField::STEP_NP1);
+    ms56_N            = blockIt->getData( m_microState56FieldId                , PeridigmField::STEP_N);
+    ms56_NP1          = blockIt->getData( m_microState56FieldId                , PeridigmField::STEP_NP1);
+    ms57_N            = blockIt->getData( m_microState57FieldId                , PeridigmField::STEP_N);
+    ms57_NP1          = blockIt->getData( m_microState57FieldId                , PeridigmField::STEP_NP1);
+    ms58_N            = blockIt->getData( m_microState58FieldId                , PeridigmField::STEP_N);
+    ms58_NP1          = blockIt->getData( m_microState58FieldId                , PeridigmField::STEP_NP1);
+    ms59_N            = blockIt->getData( m_microState59FieldId                , PeridigmField::STEP_N);
+    ms59_NP1          = blockIt->getData( m_microState59FieldId                , PeridigmField::STEP_NP1);
+    ms60_N            = blockIt->getData( m_microState60FieldId                , PeridigmField::STEP_N);
+    ms60_NP1          = blockIt->getData( m_microState60FieldId                , PeridigmField::STEP_NP1);
+
+    ms61_N            = blockIt->getData( m_microState61FieldId                , PeridigmField::STEP_N);
+    ms61_NP1          = blockIt->getData( m_microState61FieldId                , PeridigmField::STEP_NP1);
+    ms62_N            = blockIt->getData( m_microState62FieldId                , PeridigmField::STEP_N);
+    ms62_NP1          = blockIt->getData( m_microState62FieldId                , PeridigmField::STEP_NP1);
+    ms63_N            = blockIt->getData( m_microState63FieldId                , PeridigmField::STEP_N);
+    ms63_NP1          = blockIt->getData( m_microState63FieldId                , PeridigmField::STEP_NP1);
+    ms64_N            = blockIt->getData( m_microState64FieldId                , PeridigmField::STEP_N);
+    ms64_NP1          = blockIt->getData( m_microState64FieldId                , PeridigmField::STEP_NP1);
+    ms65_N            = blockIt->getData( m_microState65FieldId                , PeridigmField::STEP_N);
+    ms65_NP1          = blockIt->getData( m_microState65FieldId                , PeridigmField::STEP_NP1);
+    ms66_N            = blockIt->getData( m_microState66FieldId                , PeridigmField::STEP_N);
+    ms66_NP1          = blockIt->getData( m_microState66FieldId                , PeridigmField::STEP_NP1);
+    ms67_N            = blockIt->getData( m_microState67FieldId                , PeridigmField::STEP_N);
+    ms67_NP1          = blockIt->getData( m_microState67FieldId                , PeridigmField::STEP_NP1);
+    ms68_N            = blockIt->getData( m_microState68FieldId                , PeridigmField::STEP_N);
+    ms68_NP1          = blockIt->getData( m_microState68FieldId                , PeridigmField::STEP_NP1);
+    ms69_N            = blockIt->getData( m_microState69FieldId                , PeridigmField::STEP_N);
+    ms69_NP1          = blockIt->getData( m_microState69FieldId                , PeridigmField::STEP_NP1);
+    ms70_N            = blockIt->getData( m_microState70FieldId                , PeridigmField::STEP_N);
+    ms70_NP1          = blockIt->getData( m_microState70FieldId                , PeridigmField::STEP_NP1);
+
+    ms71_N            = blockIt->getData( m_microState71FieldId                , PeridigmField::STEP_N);
+    ms71_NP1          = blockIt->getData( m_microState71FieldId                , PeridigmField::STEP_NP1);
+    ms72_N            = blockIt->getData( m_microState72FieldId                , PeridigmField::STEP_N);
+    ms72_NP1          = blockIt->getData( m_microState72FieldId                , PeridigmField::STEP_NP1);
+    ms73_N            = blockIt->getData( m_microState73FieldId                , PeridigmField::STEP_N);
+    ms73_NP1          = blockIt->getData( m_microState73FieldId                , PeridigmField::STEP_NP1);
+    ms74_N            = blockIt->getData( m_microState74FieldId                , PeridigmField::STEP_N);
+    ms74_NP1          = blockIt->getData( m_microState74FieldId                , PeridigmField::STEP_NP1);
+    ms75_N            = blockIt->getData( m_microState75FieldId                , PeridigmField::STEP_N);
+    ms75_NP1          = blockIt->getData( m_microState75FieldId                , PeridigmField::STEP_NP1);
+    ms76_N            = blockIt->getData( m_microState76FieldId                , PeridigmField::STEP_N);
+    ms76_NP1          = blockIt->getData( m_microState76FieldId                , PeridigmField::STEP_NP1);
+    ms77_N            = blockIt->getData( m_microState77FieldId                , PeridigmField::STEP_N);
+    ms77_NP1          = blockIt->getData( m_microState77FieldId                , PeridigmField::STEP_NP1);
+    ms78_N            = blockIt->getData( m_microState78FieldId                , PeridigmField::STEP_N);
+    ms78_NP1          = blockIt->getData( m_microState78FieldId                , PeridigmField::STEP_NP1);
+    ms79_N            = blockIt->getData( m_microState79FieldId                , PeridigmField::STEP_N);
+    ms79_NP1          = blockIt->getData( m_microState79FieldId                , PeridigmField::STEP_NP1);
+    ms80_N            = blockIt->getData( m_microState80FieldId                , PeridigmField::STEP_N);
+    ms80_NP1          = blockIt->getData( m_microState80FieldId                , PeridigmField::STEP_NP1);
+
+    ms81_N            = blockIt->getData( m_microState81FieldId                , PeridigmField::STEP_N);
+    ms81_NP1          = blockIt->getData( m_microState81FieldId                , PeridigmField::STEP_NP1);
+    ms82_N            = blockIt->getData( m_microState82FieldId                , PeridigmField::STEP_N);
+    ms82_NP1          = blockIt->getData( m_microState82FieldId                , PeridigmField::STEP_NP1);
+    ms83_N            = blockIt->getData( m_microState83FieldId                , PeridigmField::STEP_N);
+    ms83_NP1          = blockIt->getData( m_microState83FieldId                , PeridigmField::STEP_NP1);
+    ms84_N            = blockIt->getData( m_microState84FieldId                , PeridigmField::STEP_N);
+    ms84_NP1          = blockIt->getData( m_microState84FieldId                , PeridigmField::STEP_NP1);
+    ms85_N            = blockIt->getData( m_microState85FieldId                , PeridigmField::STEP_N);
+    ms85_NP1          = blockIt->getData( m_microState85FieldId                , PeridigmField::STEP_NP1);
+    ms86_N            = blockIt->getData( m_microState86FieldId                , PeridigmField::STEP_N);
+    ms86_NP1          = blockIt->getData( m_microState86FieldId                , PeridigmField::STEP_NP1);
+    ms87_N            = blockIt->getData( m_microState87FieldId                , PeridigmField::STEP_N);
+    ms87_NP1          = blockIt->getData( m_microState87FieldId                , PeridigmField::STEP_NP1);
+    ms88_N            = blockIt->getData( m_microState88FieldId                , PeridigmField::STEP_N);
+    ms88_NP1          = blockIt->getData( m_microState88FieldId                , PeridigmField::STEP_NP1);
+    ms89_N            = blockIt->getData( m_microState89FieldId                , PeridigmField::STEP_N);
+    ms89_NP1          = blockIt->getData( m_microState89FieldId                , PeridigmField::STEP_NP1);
+    ms90_N            = blockIt->getData( m_microState90FieldId                , PeridigmField::STEP_N);
+    ms90_NP1          = blockIt->getData( m_microState90FieldId                , PeridigmField::STEP_NP1);
+
+    ms91_N            = blockIt->getData( m_microState91FieldId                , PeridigmField::STEP_N);
+    ms91_NP1          = blockIt->getData( m_microState91FieldId                , PeridigmField::STEP_NP1);
+    ms92_N            = blockIt->getData( m_microState92FieldId                , PeridigmField::STEP_N);
+    ms92_NP1          = blockIt->getData( m_microState92FieldId                , PeridigmField::STEP_NP1);
+    ms93_N            = blockIt->getData( m_microState93FieldId                , PeridigmField::STEP_N);
+    ms93_NP1          = blockIt->getData( m_microState93FieldId                , PeridigmField::STEP_NP1);
+    ms94_N            = blockIt->getData( m_microState94FieldId                , PeridigmField::STEP_N);
+    ms94_NP1          = blockIt->getData( m_microState94FieldId                , PeridigmField::STEP_NP1);
+    ms95_N            = blockIt->getData( m_microState95FieldId                , PeridigmField::STEP_N);
+    ms95_NP1          = blockIt->getData( m_microState95FieldId                , PeridigmField::STEP_NP1);
+    ms96_N            = blockIt->getData( m_microState96FieldId                , PeridigmField::STEP_N);
+    ms96_NP1          = blockIt->getData( m_microState96FieldId                , PeridigmField::STEP_NP1);
+    ms97_N            = blockIt->getData( m_microState97FieldId                , PeridigmField::STEP_N);
+    ms97_NP1          = blockIt->getData( m_microState97FieldId                , PeridigmField::STEP_NP1);
+    ms98_N            = blockIt->getData( m_microState98FieldId                , PeridigmField::STEP_N);
+    ms98_NP1          = blockIt->getData( m_microState98FieldId                , PeridigmField::STEP_NP1);
+    ms99_N            = blockIt->getData( m_microState99FieldId                , PeridigmField::STEP_N);
+    ms99_NP1          = blockIt->getData( m_microState99FieldId                , PeridigmField::STEP_NP1);
+    ms100_N            = blockIt->getData( m_microState100FieldId                , PeridigmField::STEP_N);
+    ms100_NP1          = blockIt->getData( m_microState100FieldId                , PeridigmField::STEP_NP1);
+
+
+    ms101_N            = blockIt->getData( m_microState101FieldId                , PeridigmField::STEP_N);
+    ms101_NP1          = blockIt->getData( m_microState101FieldId                , PeridigmField::STEP_NP1);
+    ms102_N            = blockIt->getData( m_microState102FieldId                , PeridigmField::STEP_N);
+    ms102_NP1          = blockIt->getData( m_microState102FieldId                , PeridigmField::STEP_NP1);
+    ms103_N            = blockIt->getData( m_microState103FieldId                , PeridigmField::STEP_N);
+    ms103_NP1          = blockIt->getData( m_microState103FieldId                , PeridigmField::STEP_NP1);
+    ms104_N            = blockIt->getData( m_microState104FieldId                , PeridigmField::STEP_N);
+    ms104_NP1          = blockIt->getData( m_microState104FieldId                , PeridigmField::STEP_NP1);
+    ms105_N            = blockIt->getData( m_microState105FieldId                , PeridigmField::STEP_N);
+    ms105_NP1          = blockIt->getData( m_microState105FieldId                , PeridigmField::STEP_NP1);
+    ms106_N            = blockIt->getData( m_microState106FieldId                , PeridigmField::STEP_N);
+    ms106_NP1          = blockIt->getData( m_microState106FieldId                , PeridigmField::STEP_NP1);
+    ms107_N            = blockIt->getData( m_microState107FieldId                , PeridigmField::STEP_N);
+    ms107_NP1          = blockIt->getData( m_microState107FieldId                , PeridigmField::STEP_NP1);
+    ms108_N            = blockIt->getData( m_microState108FieldId                , PeridigmField::STEP_N);
+    ms108_NP1          = blockIt->getData( m_microState108FieldId                , PeridigmField::STEP_NP1);
+    ms109_N            = blockIt->getData( m_microState109FieldId                , PeridigmField::STEP_N);
+    ms109_NP1          = blockIt->getData( m_microState109FieldId                , PeridigmField::STEP_NP1);
+    ms110_N           = blockIt->getData( m_microState110FieldId                , PeridigmField::STEP_N);
+    ms110_NP1         = blockIt->getData( m_microState110FieldId                , PeridigmField::STEP_NP1);
+
+    ms111_N            = blockIt->getData( m_microState111FieldId                , PeridigmField::STEP_N);
+    ms111_NP1          = blockIt->getData( m_microState111FieldId                , PeridigmField::STEP_NP1);
+    ms112_N            = blockIt->getData( m_microState112FieldId                , PeridigmField::STEP_N);
+    ms112_NP1          = blockIt->getData( m_microState112FieldId                , PeridigmField::STEP_NP1);
+    ms113_N            = blockIt->getData( m_microState113FieldId                , PeridigmField::STEP_N);
+    ms113_NP1          = blockIt->getData( m_microState113FieldId                , PeridigmField::STEP_NP1);
+    ms114_N            = blockIt->getData( m_microState114FieldId                , PeridigmField::STEP_N);
+    ms114_NP1          = blockIt->getData( m_microState114FieldId                , PeridigmField::STEP_NP1);
+    ms115_N            = blockIt->getData( m_microState115FieldId                , PeridigmField::STEP_N);
+    ms115_NP1          = blockIt->getData( m_microState115FieldId                , PeridigmField::STEP_NP1);
+    ms116_N            = blockIt->getData( m_microState116FieldId                , PeridigmField::STEP_N);
+    ms116_NP1          = blockIt->getData( m_microState116FieldId                , PeridigmField::STEP_NP1);
+    ms117_N            = blockIt->getData( m_microState117FieldId                , PeridigmField::STEP_N);
+    ms117_NP1          = blockIt->getData( m_microState117FieldId                , PeridigmField::STEP_NP1);
+    ms118_N            = blockIt->getData( m_microState118FieldId                , PeridigmField::STEP_N);
+    ms118_NP1          = blockIt->getData( m_microState118FieldId                , PeridigmField::STEP_NP1);
+    ms119_N            = blockIt->getData( m_microState119FieldId                , PeridigmField::STEP_N);
+    ms119_NP1          = blockIt->getData( m_microState119FieldId                , PeridigmField::STEP_NP1);
+    ms120_N           = blockIt->getData( m_microState120FieldId                , PeridigmField::STEP_N);
+    ms120_NP1         = blockIt->getData( m_microState120FieldId                , PeridigmField::STEP_NP1);
+
+    ms121_N            = blockIt->getData( m_microState121FieldId                , PeridigmField::STEP_N);
+    ms121_NP1          = blockIt->getData( m_microState121FieldId                , PeridigmField::STEP_NP1);
+    ms122_N            = blockIt->getData( m_microState122FieldId                , PeridigmField::STEP_N);
+    ms122_NP1          = blockIt->getData( m_microState122FieldId                , PeridigmField::STEP_NP1);
+    ms123_N            = blockIt->getData( m_microState123FieldId                , PeridigmField::STEP_N);
+    ms123_NP1          = blockIt->getData( m_microState123FieldId                , PeridigmField::STEP_NP1);
+    ms124_N            = blockIt->getData( m_microState124FieldId                , PeridigmField::STEP_N);
+    ms124_NP1          = blockIt->getData( m_microState124FieldId                , PeridigmField::STEP_NP1);
+    ms125_N            = blockIt->getData( m_microState125FieldId                , PeridigmField::STEP_N);
+    ms125_NP1          = blockIt->getData( m_microState125FieldId                , PeridigmField::STEP_NP1);
+    ms126_N            = blockIt->getData( m_microState126FieldId                , PeridigmField::STEP_N);
+    ms126_NP1          = blockIt->getData( m_microState126FieldId                , PeridigmField::STEP_NP1);
+    ms127_N            = blockIt->getData( m_microState127FieldId                , PeridigmField::STEP_N);
+    ms127_NP1          = blockIt->getData( m_microState127FieldId                , PeridigmField::STEP_NP1);
+    ms128_N            = blockIt->getData( m_microState128FieldId                , PeridigmField::STEP_N);
+    ms128_NP1          = blockIt->getData( m_microState128FieldId                , PeridigmField::STEP_NP1);
+    ms129_N            = blockIt->getData( m_microState129FieldId                , PeridigmField::STEP_N);
+    ms129_NP1          = blockIt->getData( m_microState129FieldId                , PeridigmField::STEP_NP1);
+    ms130_N           = blockIt->getData( m_microState130FieldId                , PeridigmField::STEP_N);
+    ms130_NP1         = blockIt->getData( m_microState130FieldId                , PeridigmField::STEP_NP1);
+
+    ms131_N            = blockIt->getData( m_microState131FieldId                , PeridigmField::STEP_N);
+    ms131_NP1          = blockIt->getData( m_microState131FieldId                , PeridigmField::STEP_NP1);
+    ms132_N            = blockIt->getData( m_microState132FieldId                , PeridigmField::STEP_N);
+    ms132_NP1          = blockIt->getData( m_microState132FieldId                , PeridigmField::STEP_NP1);
+    ms133_N            = blockIt->getData( m_microState133FieldId                , PeridigmField::STEP_N);
+    ms133_NP1          = blockIt->getData( m_microState133FieldId                , PeridigmField::STEP_NP1);
+    ms134_N            = blockIt->getData( m_microState134FieldId                , PeridigmField::STEP_N);
+    ms134_NP1          = blockIt->getData( m_microState134FieldId                , PeridigmField::STEP_NP1);
+    ms135_N            = blockIt->getData( m_microState135FieldId                , PeridigmField::STEP_N);
+    ms135_NP1          = blockIt->getData( m_microState135FieldId                , PeridigmField::STEP_NP1);
+    ms136_N            = blockIt->getData( m_microState136FieldId                , PeridigmField::STEP_N);
+    ms136_NP1          = blockIt->getData( m_microState136FieldId                , PeridigmField::STEP_NP1);
+    ms137_N            = blockIt->getData( m_microState137FieldId                , PeridigmField::STEP_N);
+    ms137_NP1          = blockIt->getData( m_microState137FieldId                , PeridigmField::STEP_NP1);
+    ms138_N            = blockIt->getData( m_microState138FieldId                , PeridigmField::STEP_N);
+    ms138_NP1          = blockIt->getData( m_microState138FieldId                , PeridigmField::STEP_NP1);
+    ms139_N            = blockIt->getData( m_microState139FieldId                , PeridigmField::STEP_N);
+    ms139_NP1          = blockIt->getData( m_microState139FieldId                , PeridigmField::STEP_NP1);
+    ms140_N           = blockIt->getData( m_microState140FieldId                , PeridigmField::STEP_N);
+    ms140_NP1         = blockIt->getData( m_microState140FieldId                , PeridigmField::STEP_NP1);
+
+    ms141_N            = blockIt->getData( m_microState141FieldId                , PeridigmField::STEP_N);
+    ms141_NP1          = blockIt->getData( m_microState141FieldId                , PeridigmField::STEP_NP1);
+    ms142_N            = blockIt->getData( m_microState142FieldId                , PeridigmField::STEP_N);
+    ms142_NP1          = blockIt->getData( m_microState142FieldId                , PeridigmField::STEP_NP1);
+    ms143_N            = blockIt->getData( m_microState143FieldId                , PeridigmField::STEP_N);
+    ms143_NP1          = blockIt->getData( m_microState143FieldId                , PeridigmField::STEP_NP1);
+    ms144_N            = blockIt->getData( m_microState144FieldId                , PeridigmField::STEP_N);
+    ms144_NP1          = blockIt->getData( m_microState144FieldId                , PeridigmField::STEP_NP1);
+    ms145_N            = blockIt->getData( m_microState145FieldId                , PeridigmField::STEP_N);
+    ms145_NP1          = blockIt->getData( m_microState145FieldId                , PeridigmField::STEP_NP1);
+    ms146_N            = blockIt->getData( m_microState146FieldId                , PeridigmField::STEP_N);
+    ms146_NP1          = blockIt->getData( m_microState146FieldId                , PeridigmField::STEP_NP1);
+    ms147_N            = blockIt->getData( m_microState147FieldId                , PeridigmField::STEP_N);
+    ms147_NP1          = blockIt->getData( m_microState147FieldId                , PeridigmField::STEP_NP1);
+    ms148_N            = blockIt->getData( m_microState148FieldId                , PeridigmField::STEP_N);
+    ms148_NP1          = blockIt->getData( m_microState148FieldId                , PeridigmField::STEP_NP1);
+    ms149_N            = blockIt->getData( m_microState149FieldId                , PeridigmField::STEP_N);
+    ms149_NP1          = blockIt->getData( m_microState149FieldId                , PeridigmField::STEP_NP1);
+    ms150_N           = blockIt->getData( m_microState150FieldId                , PeridigmField::STEP_N);
+    ms150_NP1         = blockIt->getData( m_microState150FieldId                , PeridigmField::STEP_NP1);
+
+    ms151_N            = blockIt->getData( m_microState151FieldId                , PeridigmField::STEP_N);
+    ms151_NP1          = blockIt->getData( m_microState151FieldId                , PeridigmField::STEP_NP1);
+    ms152_N            = blockIt->getData( m_microState152FieldId                , PeridigmField::STEP_N);
+    ms152_NP1          = blockIt->getData( m_microState152FieldId                , PeridigmField::STEP_NP1);
+    ms153_N            = blockIt->getData( m_microState153FieldId                , PeridigmField::STEP_N);
+    ms153_NP1          = blockIt->getData( m_microState153FieldId                , PeridigmField::STEP_NP1);
+    ms154_N            = blockIt->getData( m_microState154FieldId                , PeridigmField::STEP_N);
+    ms154_NP1          = blockIt->getData( m_microState154FieldId                , PeridigmField::STEP_NP1);
+    ms155_N            = blockIt->getData( m_microState155FieldId                , PeridigmField::STEP_N);
+    ms155_NP1          = blockIt->getData( m_microState155FieldId                , PeridigmField::STEP_NP1);
+    ms156_N            = blockIt->getData( m_microState156FieldId                , PeridigmField::STEP_N);
+    ms156_NP1          = blockIt->getData( m_microState156FieldId                , PeridigmField::STEP_NP1);
+    ms157_N            = blockIt->getData( m_microState157FieldId                , PeridigmField::STEP_N);
+    ms157_NP1          = blockIt->getData( m_microState157FieldId                , PeridigmField::STEP_NP1);
+    ms158_N            = blockIt->getData( m_microState158FieldId                , PeridigmField::STEP_N);
+    ms158_NP1          = blockIt->getData( m_microState158FieldId                , PeridigmField::STEP_NP1);
+    ms159_N            = blockIt->getData( m_microState159FieldId                , PeridigmField::STEP_N);
+    ms159_NP1          = blockIt->getData( m_microState159FieldId                , PeridigmField::STEP_NP1);
+    ms160_N            = blockIt->getData( m_microState160FieldId                , PeridigmField::STEP_N);
+    ms160_NP1          = blockIt->getData( m_microState160FieldId                , PeridigmField::STEP_NP1);
+
+    ms161_N            = blockIt->getData( m_microState161FieldId                , PeridigmField::STEP_N);
+    ms161_NP1          = blockIt->getData( m_microState161FieldId                , PeridigmField::STEP_NP1);
+    ms162_N            = blockIt->getData( m_microState162FieldId                , PeridigmField::STEP_N);
+    ms162_NP1          = blockIt->getData( m_microState162FieldId                , PeridigmField::STEP_NP1);
+    ms163_N            = blockIt->getData( m_microState163FieldId                , PeridigmField::STEP_N);
+    ms163_NP1          = blockIt->getData( m_microState163FieldId                , PeridigmField::STEP_NP1);
+    ms164_N            = blockIt->getData( m_microState164FieldId                , PeridigmField::STEP_N);
+    ms164_NP1          = blockIt->getData( m_microState164FieldId                , PeridigmField::STEP_NP1);
+    ms165_N            = blockIt->getData( m_microState165FieldId                , PeridigmField::STEP_N);
+    ms165_NP1          = blockIt->getData( m_microState165FieldId                , PeridigmField::STEP_NP1);
+    ms166_N            = blockIt->getData( m_microState166FieldId                , PeridigmField::STEP_N);
+    ms166_NP1          = blockIt->getData( m_microState166FieldId                , PeridigmField::STEP_NP1);
+    ms167_N            = blockIt->getData( m_microState167FieldId                , PeridigmField::STEP_N);
+    ms167_NP1          = blockIt->getData( m_microState167FieldId                , PeridigmField::STEP_NP1);
+    ms168_N            = blockIt->getData( m_microState168FieldId                , PeridigmField::STEP_N);
+    ms168_NP1          = blockIt->getData( m_microState168FieldId                , PeridigmField::STEP_NP1);
+    ms169_N            = blockIt->getData( m_microState169FieldId                , PeridigmField::STEP_N);
+    ms169_NP1          = blockIt->getData( m_microState169FieldId                , PeridigmField::STEP_NP1);
+    ms170_N            = blockIt->getData( m_microState170FieldId                , PeridigmField::STEP_N);
+    ms170_NP1          = blockIt->getData( m_microState170FieldId                , PeridigmField::STEP_NP1);
+
+    ms171_N            = blockIt->getData( m_microState171FieldId                , PeridigmField::STEP_N);
+    ms171_NP1          = blockIt->getData( m_microState171FieldId                , PeridigmField::STEP_NP1);
+    ms172_N            = blockIt->getData( m_microState172FieldId                , PeridigmField::STEP_N);
+    ms172_NP1          = blockIt->getData( m_microState172FieldId                , PeridigmField::STEP_NP1);
+    ms173_N            = blockIt->getData( m_microState173FieldId                , PeridigmField::STEP_N);
+    ms173_NP1          = blockIt->getData( m_microState173FieldId                , PeridigmField::STEP_NP1);
+    ms174_N            = blockIt->getData( m_microState174FieldId                , PeridigmField::STEP_N);
+    ms174_NP1          = blockIt->getData( m_microState174FieldId                , PeridigmField::STEP_NP1);
+    ms175_N            = blockIt->getData( m_microState175FieldId                , PeridigmField::STEP_N);
+    ms175_NP1          = blockIt->getData( m_microState175FieldId                , PeridigmField::STEP_NP1);
+    ms176_N            = blockIt->getData( m_microState176FieldId                , PeridigmField::STEP_N);
+    ms176_NP1          = blockIt->getData( m_microState176FieldId                , PeridigmField::STEP_NP1);
+    ms177_N            = blockIt->getData( m_microState177FieldId                , PeridigmField::STEP_N);
+    ms177_NP1          = blockIt->getData( m_microState177FieldId                , PeridigmField::STEP_NP1);
+    ms178_N            = blockIt->getData( m_microState178FieldId                , PeridigmField::STEP_N);
+    ms178_NP1          = blockIt->getData( m_microState178FieldId                , PeridigmField::STEP_NP1);
+    ms179_N            = blockIt->getData( m_microState179FieldId                , PeridigmField::STEP_N);
+    ms179_NP1          = blockIt->getData( m_microState179FieldId                , PeridigmField::STEP_NP1);
+    ms180_N            = blockIt->getData( m_microState180FieldId                , PeridigmField::STEP_N);
+    ms180_NP1          = blockIt->getData( m_microState180FieldId                , PeridigmField::STEP_NP1);
+
+    ms181_N            = blockIt->getData( m_microState181FieldId                , PeridigmField::STEP_N);
+    ms181_NP1          = blockIt->getData( m_microState181FieldId                , PeridigmField::STEP_NP1);
+    ms182_N            = blockIt->getData( m_microState182FieldId                , PeridigmField::STEP_N);
+    ms182_NP1          = blockIt->getData( m_microState182FieldId                , PeridigmField::STEP_NP1);
+    ms183_N            = blockIt->getData( m_microState183FieldId                , PeridigmField::STEP_N);
+    ms183_NP1          = blockIt->getData( m_microState183FieldId                , PeridigmField::STEP_NP1);
+    ms184_N            = blockIt->getData( m_microState184FieldId                , PeridigmField::STEP_N);
+    ms184_NP1          = blockIt->getData( m_microState184FieldId                , PeridigmField::STEP_NP1);
+    ms185_N            = blockIt->getData( m_microState185FieldId                , PeridigmField::STEP_N);
+    ms185_NP1          = blockIt->getData( m_microState185FieldId                , PeridigmField::STEP_NP1);
+    ms186_N            = blockIt->getData( m_microState186FieldId                , PeridigmField::STEP_N);
+    ms186_NP1          = blockIt->getData( m_microState186FieldId                , PeridigmField::STEP_NP1);
+    ms187_N            = blockIt->getData( m_microState187FieldId                , PeridigmField::STEP_N);
+    ms187_NP1          = blockIt->getData( m_microState187FieldId                , PeridigmField::STEP_NP1);
+    ms188_N            = blockIt->getData( m_microState188FieldId                , PeridigmField::STEP_N);
+    ms188_NP1          = blockIt->getData( m_microState188FieldId                , PeridigmField::STEP_NP1);
+    ms189_N            = blockIt->getData( m_microState189FieldId                , PeridigmField::STEP_N);
+    ms189_NP1          = blockIt->getData( m_microState189FieldId                , PeridigmField::STEP_NP1);
+
+    // Micro Damage
+
+md1_N            = blockIt->getData( m_microDamage1FieldId                , PeridigmField::STEP_N);
+md1_NP1          = blockIt->getData( m_microDamage1FieldId                , PeridigmField::STEP_NP1);
+md2_N            = blockIt->getData( m_microDamage2FieldId                , PeridigmField::STEP_N);
+md2_NP1          = blockIt->getData( m_microDamage2FieldId                , PeridigmField::STEP_NP1);
+md3_N            = blockIt->getData( m_microDamage3FieldId                , PeridigmField::STEP_N);
+md3_NP1          = blockIt->getData( m_microDamage3FieldId                , PeridigmField::STEP_NP1);
+md4_N            = blockIt->getData( m_microDamage4FieldId                , PeridigmField::STEP_N);
+md4_NP1          = blockIt->getData( m_microDamage4FieldId                , PeridigmField::STEP_NP1);
+md5_N            = blockIt->getData( m_microDamage5FieldId                , PeridigmField::STEP_N);
+md5_NP1          = blockIt->getData( m_microDamage5FieldId                , PeridigmField::STEP_NP1);
+md6_N            = blockIt->getData( m_microDamage6FieldId                , PeridigmField::STEP_N);
+md6_NP1          = blockIt->getData( m_microDamage6FieldId                , PeridigmField::STEP_NP1);
+md7_N            = blockIt->getData( m_microDamage7FieldId                , PeridigmField::STEP_N);
+md7_NP1          = blockIt->getData( m_microDamage7FieldId                , PeridigmField::STEP_NP1);
+md8_N            = blockIt->getData( m_microDamage8FieldId                , PeridigmField::STEP_N);
+md8_NP1          = blockIt->getData( m_microDamage8FieldId                , PeridigmField::STEP_NP1);
+md9_N            = blockIt->getData( m_microDamage9FieldId                , PeridigmField::STEP_N);
+md9_NP1          = blockIt->getData( m_microDamage9FieldId                , PeridigmField::STEP_NP1);
+md10_N           = blockIt->getData( m_microDamage10FieldId                , PeridigmField::STEP_N);
+md10_NP1         = blockIt->getData( m_microDamage10FieldId                , PeridigmField::STEP_NP1);
+
+md11_N            = blockIt->getData( m_microDamage11FieldId                , PeridigmField::STEP_N);
+md11_NP1          = blockIt->getData( m_microDamage11FieldId                , PeridigmField::STEP_NP1);
+md12_N            = blockIt->getData( m_microDamage12FieldId                , PeridigmField::STEP_N);
+md12_NP1          = blockIt->getData( m_microDamage12FieldId                , PeridigmField::STEP_NP1);
+md13_N            = blockIt->getData( m_microDamage13FieldId                , PeridigmField::STEP_N);
+md13_NP1          = blockIt->getData( m_microDamage13FieldId                , PeridigmField::STEP_NP1);
+md14_N            = blockIt->getData( m_microDamage14FieldId                , PeridigmField::STEP_N);
+md14_NP1          = blockIt->getData( m_microDamage14FieldId                , PeridigmField::STEP_NP1);
+md15_N            = blockIt->getData( m_microDamage15FieldId                , PeridigmField::STEP_N);
+md15_NP1          = blockIt->getData( m_microDamage15FieldId                , PeridigmField::STEP_NP1);
+md16_N            = blockIt->getData( m_microDamage16FieldId                , PeridigmField::STEP_N);
+md16_NP1          = blockIt->getData( m_microDamage16FieldId                , PeridigmField::STEP_NP1);
+md17_N            = blockIt->getData( m_microDamage17FieldId                , PeridigmField::STEP_N);
+md17_NP1          = blockIt->getData( m_microDamage17FieldId                , PeridigmField::STEP_NP1);
+md18_N            = blockIt->getData( m_microDamage18FieldId                , PeridigmField::STEP_N);
+md18_NP1          = blockIt->getData( m_microDamage18FieldId                , PeridigmField::STEP_NP1);
+md19_N            = blockIt->getData( m_microDamage19FieldId                , PeridigmField::STEP_N);
+md19_NP1          = blockIt->getData( m_microDamage19FieldId                , PeridigmField::STEP_NP1);
+md20_N           = blockIt->getData( m_microDamage20FieldId                , PeridigmField::STEP_N);
+md20_NP1         = blockIt->getData( m_microDamage20FieldId                , PeridigmField::STEP_NP1);
+
+md21_N            = blockIt->getData( m_microDamage21FieldId                , PeridigmField::STEP_N);
+md21_NP1          = blockIt->getData( m_microDamage21FieldId                , PeridigmField::STEP_NP1);
+md22_N            = blockIt->getData( m_microDamage22FieldId                , PeridigmField::STEP_N);
+md22_NP1          = blockIt->getData( m_microDamage22FieldId                , PeridigmField::STEP_NP1);
+md23_N            = blockIt->getData( m_microDamage23FieldId                , PeridigmField::STEP_N);
+md23_NP1          = blockIt->getData( m_microDamage23FieldId                , PeridigmField::STEP_NP1);
+md24_N            = blockIt->getData( m_microDamage24FieldId                , PeridigmField::STEP_N);
+md24_NP1          = blockIt->getData( m_microDamage24FieldId                , PeridigmField::STEP_NP1);
+md25_N            = blockIt->getData( m_microDamage25FieldId                , PeridigmField::STEP_N);
+md25_NP1          = blockIt->getData( m_microDamage25FieldId                , PeridigmField::STEP_NP1);
+md26_N            = blockIt->getData( m_microDamage26FieldId                , PeridigmField::STEP_N);
+md26_NP1          = blockIt->getData( m_microDamage26FieldId                , PeridigmField::STEP_NP1);
+md27_N            = blockIt->getData( m_microDamage27FieldId                , PeridigmField::STEP_N);
+md27_NP1          = blockIt->getData( m_microDamage27FieldId                , PeridigmField::STEP_NP1);
+md28_N            = blockIt->getData( m_microDamage28FieldId                , PeridigmField::STEP_N);
+md28_NP1          = blockIt->getData( m_microDamage28FieldId                , PeridigmField::STEP_NP1);
+md29_N            = blockIt->getData( m_microDamage29FieldId                , PeridigmField::STEP_N);
+md29_NP1          = blockIt->getData( m_microDamage29FieldId                , PeridigmField::STEP_NP1);
+md30_N           = blockIt->getData( m_microDamage30FieldId                , PeridigmField::STEP_N);
+md30_NP1         = blockIt->getData( m_microDamage30FieldId                , PeridigmField::STEP_NP1);
+
+md31_N            = blockIt->getData( m_microDamage31FieldId                , PeridigmField::STEP_N);
+md31_NP1          = blockIt->getData( m_microDamage31FieldId                , PeridigmField::STEP_NP1);
+md32_N            = blockIt->getData( m_microDamage32FieldId                , PeridigmField::STEP_N);
+md32_NP1          = blockIt->getData( m_microDamage32FieldId                , PeridigmField::STEP_NP1);
+md33_N            = blockIt->getData( m_microDamage33FieldId                , PeridigmField::STEP_N);
+md33_NP1          = blockIt->getData( m_microDamage33FieldId                , PeridigmField::STEP_NP1);
+md34_N            = blockIt->getData( m_microDamage34FieldId                , PeridigmField::STEP_N);
+md34_NP1          = blockIt->getData( m_microDamage34FieldId                , PeridigmField::STEP_NP1);
+md35_N            = blockIt->getData( m_microDamage35FieldId                , PeridigmField::STEP_N);
+md35_NP1          = blockIt->getData( m_microDamage35FieldId                , PeridigmField::STEP_NP1);
+md36_N            = blockIt->getData( m_microDamage36FieldId                , PeridigmField::STEP_N);
+md36_NP1          = blockIt->getData( m_microDamage36FieldId                , PeridigmField::STEP_NP1);
+md37_N            = blockIt->getData( m_microDamage37FieldId                , PeridigmField::STEP_N);
+md37_NP1          = blockIt->getData( m_microDamage37FieldId                , PeridigmField::STEP_NP1);
+
+/////// Bond Level Microstates //////////////////
+    Bms1_N            = blockIt->getData( m_bondLevelMicroState1FieldId       , PeridigmField::STEP_N);
+    Bms1_NP1          = blockIt->getData( m_bondLevelMicroState1FieldId                , PeridigmField::STEP_NP1);
+    Bms2_N            = blockIt->getData( m_bondLevelMicroState2FieldId                , PeridigmField::STEP_N);
+    Bms2_NP1          = blockIt->getData( m_bondLevelMicroState2FieldId                , PeridigmField::STEP_NP1);
+    Bms3_N            = blockIt->getData( m_bondLevelMicroState3FieldId                , PeridigmField::STEP_N);
+    Bms3_NP1          = blockIt->getData( m_bondLevelMicroState3FieldId                , PeridigmField::STEP_NP1);
+    Bms4_N            = blockIt->getData( m_bondLevelMicroState4FieldId                , PeridigmField::STEP_N);
+    Bms4_NP1          = blockIt->getData( m_bondLevelMicroState4FieldId                , PeridigmField::STEP_NP1);
+    Bms5_N            = blockIt->getData( m_bondLevelMicroState5FieldId                , PeridigmField::STEP_N);
+    Bms5_NP1          = blockIt->getData( m_bondLevelMicroState5FieldId                , PeridigmField::STEP_NP1);
+    Bms6_N            = blockIt->getData( m_bondLevelMicroState6FieldId                , PeridigmField::STEP_N);
+    Bms6_NP1          = blockIt->getData( m_bondLevelMicroState6FieldId                , PeridigmField::STEP_NP1);
+    Bms7_N            = blockIt->getData( m_bondLevelMicroState7FieldId                , PeridigmField::STEP_N);
+    Bms7_NP1          = blockIt->getData( m_bondLevelMicroState7FieldId                , PeridigmField::STEP_NP1);
+    Bms8_N            = blockIt->getData( m_bondLevelMicroState8FieldId                , PeridigmField::STEP_N);
+    Bms8_NP1          = blockIt->getData( m_bondLevelMicroState8FieldId                , PeridigmField::STEP_NP1);
+    Bms9_N            = blockIt->getData( m_bondLevelMicroState9FieldId                , PeridigmField::STEP_N);
+    Bms9_NP1          = blockIt->getData( m_bondLevelMicroState9FieldId                , PeridigmField::STEP_NP1);
+    Bms10_N           = blockIt->getData( m_bondLevelMicroState10FieldId                , PeridigmField::STEP_N);
+    Bms10_NP1         = blockIt->getData( m_bondLevelMicroState10FieldId                , PeridigmField::STEP_NP1);
+
+    Bms11_N            = blockIt->getData( m_bondLevelMicroState11FieldId                , PeridigmField::STEP_N);
+    Bms11_NP1          = blockIt->getData( m_bondLevelMicroState11FieldId                , PeridigmField::STEP_NP1);
+    Bms12_N            = blockIt->getData( m_bondLevelMicroState12FieldId                , PeridigmField::STEP_N);
+    Bms12_NP1          = blockIt->getData( m_bondLevelMicroState12FieldId                , PeridigmField::STEP_NP1);
+    Bms13_N            = blockIt->getData( m_bondLevelMicroState13FieldId                , PeridigmField::STEP_N);
+    Bms13_NP1          = blockIt->getData( m_bondLevelMicroState13FieldId                , PeridigmField::STEP_NP1);
+    Bms14_N            = blockIt->getData( m_bondLevelMicroState14FieldId                , PeridigmField::STEP_N);
+    Bms14_NP1          = blockIt->getData( m_bondLevelMicroState14FieldId                , PeridigmField::STEP_NP1);
+    Bms15_N            = blockIt->getData( m_bondLevelMicroState15FieldId                , PeridigmField::STEP_N);
+    Bms15_NP1          = blockIt->getData( m_bondLevelMicroState15FieldId                , PeridigmField::STEP_NP1);
+    Bms16_N            = blockIt->getData( m_bondLevelMicroState16FieldId                , PeridigmField::STEP_N);
+    Bms16_NP1          = blockIt->getData( m_bondLevelMicroState16FieldId                , PeridigmField::STEP_NP1);
+    Bms17_N            = blockIt->getData( m_bondLevelMicroState17FieldId                , PeridigmField::STEP_N);
+    Bms17_NP1          = blockIt->getData( m_bondLevelMicroState17FieldId                , PeridigmField::STEP_NP1);
+    Bms18_N            = blockIt->getData( m_bondLevelMicroState18FieldId                , PeridigmField::STEP_N);
+    Bms18_NP1          = blockIt->getData( m_bondLevelMicroState18FieldId                , PeridigmField::STEP_NP1);
+    Bms19_N            = blockIt->getData( m_bondLevelMicroState19FieldId                , PeridigmField::STEP_N);
+    Bms19_NP1          = blockIt->getData( m_bondLevelMicroState19FieldId                , PeridigmField::STEP_NP1);
+    Bms20_N           = blockIt->getData( m_bondLevelMicroState20FieldId                , PeridigmField::STEP_N);
+    Bms20_NP1         = blockIt->getData( m_bondLevelMicroState20FieldId                , PeridigmField::STEP_NP1);
+
+    Bms21_N            = blockIt->getData( m_bondLevelMicroState21FieldId                , PeridigmField::STEP_N);
+    Bms21_NP1          = blockIt->getData( m_bondLevelMicroState21FieldId                , PeridigmField::STEP_NP1);
+    Bms22_N            = blockIt->getData( m_bondLevelMicroState22FieldId                , PeridigmField::STEP_N);
+    Bms22_NP1          = blockIt->getData( m_bondLevelMicroState22FieldId                , PeridigmField::STEP_NP1);
+    Bms23_N            = blockIt->getData( m_bondLevelMicroState23FieldId                , PeridigmField::STEP_N);
+    Bms23_NP1          = blockIt->getData( m_bondLevelMicroState23FieldId                , PeridigmField::STEP_NP1);
+    Bms24_N            = blockIt->getData( m_bondLevelMicroState24FieldId                , PeridigmField::STEP_N);
+    Bms24_NP1          = blockIt->getData( m_bondLevelMicroState24FieldId                , PeridigmField::STEP_NP1);
+    Bms25_N            = blockIt->getData( m_bondLevelMicroState25FieldId                , PeridigmField::STEP_N);
+    Bms25_NP1          = blockIt->getData( m_bondLevelMicroState25FieldId                , PeridigmField::STEP_NP1);
+    Bms26_N            = blockIt->getData( m_bondLevelMicroState26FieldId                , PeridigmField::STEP_N);
+    Bms26_NP1          = blockIt->getData( m_bondLevelMicroState26FieldId                , PeridigmField::STEP_NP1);
+    Bms27_N            = blockIt->getData( m_bondLevelMicroState27FieldId                , PeridigmField::STEP_N);
+    Bms27_NP1          = blockIt->getData( m_bondLevelMicroState27FieldId                , PeridigmField::STEP_NP1);
+    Bms28_N            = blockIt->getData( m_bondLevelMicroState28FieldId                , PeridigmField::STEP_N);
+    Bms28_NP1          = blockIt->getData( m_bondLevelMicroState28FieldId                , PeridigmField::STEP_NP1);
+    Bms29_N            = blockIt->getData( m_bondLevelMicroState29FieldId                , PeridigmField::STEP_N);
+    Bms29_NP1          = blockIt->getData( m_bondLevelMicroState29FieldId                , PeridigmField::STEP_NP1);
+    Bms30_N           = blockIt->getData( m_bondLevelMicroState30FieldId                , PeridigmField::STEP_N);
+    Bms30_NP1         = blockIt->getData( m_bondLevelMicroState30FieldId                , PeridigmField::STEP_NP1);
+
+    Bms31_N            = blockIt->getData( m_bondLevelMicroState31FieldId                , PeridigmField::STEP_N);
+    Bms31_NP1          = blockIt->getData( m_bondLevelMicroState31FieldId                , PeridigmField::STEP_NP1);
+    Bms32_N            = blockIt->getData( m_bondLevelMicroState32FieldId                , PeridigmField::STEP_N);
+    Bms32_NP1          = blockIt->getData( m_bondLevelMicroState32FieldId                , PeridigmField::STEP_NP1);
+    Bms33_N            = blockIt->getData( m_bondLevelMicroState33FieldId                , PeridigmField::STEP_N);
+    Bms33_NP1          = blockIt->getData( m_bondLevelMicroState33FieldId                , PeridigmField::STEP_NP1);
+    Bms34_N            = blockIt->getData( m_bondLevelMicroState34FieldId                , PeridigmField::STEP_N);
+    Bms34_NP1          = blockIt->getData( m_bondLevelMicroState34FieldId                , PeridigmField::STEP_NP1);
+    Bms35_N            = blockIt->getData( m_bondLevelMicroState35FieldId                , PeridigmField::STEP_N);
+    Bms35_NP1          = blockIt->getData( m_bondLevelMicroState35FieldId                , PeridigmField::STEP_NP1);
+    Bms36_N            = blockIt->getData( m_bondLevelMicroState36FieldId                , PeridigmField::STEP_N);
+    Bms36_NP1          = blockIt->getData( m_bondLevelMicroState36FieldId                , PeridigmField::STEP_NP1);
+    Bms37_N            = blockIt->getData( m_bondLevelMicroState37FieldId                , PeridigmField::STEP_N);
+    Bms37_NP1          = blockIt->getData( m_bondLevelMicroState37FieldId                , PeridigmField::STEP_NP1);
+    Bms38_N            = blockIt->getData( m_bondLevelMicroState38FieldId                , PeridigmField::STEP_N);
+    Bms38_NP1          = blockIt->getData( m_bondLevelMicroState38FieldId                , PeridigmField::STEP_NP1);
+    Bms39_N            = blockIt->getData( m_bondLevelMicroState39FieldId                , PeridigmField::STEP_N);
+    Bms39_NP1          = blockIt->getData( m_bondLevelMicroState39FieldId                , PeridigmField::STEP_NP1);
+    Bms40_N           = blockIt->getData( m_bondLevelMicroState40FieldId                , PeridigmField::STEP_N);
+    Bms40_NP1         = blockIt->getData( m_bondLevelMicroState40FieldId                , PeridigmField::STEP_NP1);
+
+    Bms41_N            = blockIt->getData( m_bondLevelMicroState41FieldId                , PeridigmField::STEP_N);
+    Bms41_NP1          = blockIt->getData( m_bondLevelMicroState41FieldId                , PeridigmField::STEP_NP1);
+    Bms42_N            = blockIt->getData( m_bondLevelMicroState42FieldId                , PeridigmField::STEP_N);
+    Bms42_NP1          = blockIt->getData( m_bondLevelMicroState42FieldId                , PeridigmField::STEP_NP1);
+    Bms43_N            = blockIt->getData( m_bondLevelMicroState43FieldId                , PeridigmField::STEP_N);
+    Bms43_NP1          = blockIt->getData( m_bondLevelMicroState43FieldId                , PeridigmField::STEP_NP1);
+    Bms44_N            = blockIt->getData( m_bondLevelMicroState44FieldId                , PeridigmField::STEP_N);
+    Bms44_NP1          = blockIt->getData( m_bondLevelMicroState44FieldId                , PeridigmField::STEP_NP1);
+    Bms45_N            = blockIt->getData( m_bondLevelMicroState45FieldId                , PeridigmField::STEP_N);
+    Bms45_NP1          = blockIt->getData( m_bondLevelMicroState45FieldId                , PeridigmField::STEP_NP1);
+    Bms46_N            = blockIt->getData( m_bondLevelMicroState46FieldId                , PeridigmField::STEP_N);
+    Bms46_NP1          = blockIt->getData( m_bondLevelMicroState46FieldId                , PeridigmField::STEP_NP1);
+    Bms47_N            = blockIt->getData( m_bondLevelMicroState47FieldId                , PeridigmField::STEP_N);
+    Bms47_NP1          = blockIt->getData( m_bondLevelMicroState47FieldId                , PeridigmField::STEP_NP1);
+    Bms48_N            = blockIt->getData( m_bondLevelMicroState48FieldId                , PeridigmField::STEP_N);
+    Bms48_NP1          = blockIt->getData( m_bondLevelMicroState48FieldId                , PeridigmField::STEP_NP1);
+    Bms49_N            = blockIt->getData( m_bondLevelMicroState49FieldId                , PeridigmField::STEP_N);
+    Bms49_NP1          = blockIt->getData( m_bondLevelMicroState49FieldId                , PeridigmField::STEP_NP1);
+    Bms50_N           = blockIt->getData( m_bondLevelMicroState50FieldId                , PeridigmField::STEP_N);
+    Bms50_NP1         = blockIt->getData( m_bondLevelMicroState50FieldId                , PeridigmField::STEP_NP1);
+
+    Bms51_N            = blockIt->getData( m_bondLevelMicroState51FieldId                , PeridigmField::STEP_N);
+    Bms51_NP1          = blockIt->getData( m_bondLevelMicroState51FieldId                , PeridigmField::STEP_NP1);
+    Bms52_N            = blockIt->getData( m_bondLevelMicroState52FieldId                , PeridigmField::STEP_N);
+    Bms52_NP1          = blockIt->getData( m_bondLevelMicroState52FieldId                , PeridigmField::STEP_NP1);
+    Bms53_N            = blockIt->getData( m_bondLevelMicroState53FieldId                , PeridigmField::STEP_N);
+    Bms53_NP1          = blockIt->getData( m_bondLevelMicroState53FieldId                , PeridigmField::STEP_NP1);
+    Bms54_N            = blockIt->getData( m_bondLevelMicroState54FieldId                , PeridigmField::STEP_N);
+    Bms54_NP1          = blockIt->getData( m_bondLevelMicroState54FieldId                , PeridigmField::STEP_NP1);
+    Bms55_N            = blockIt->getData( m_bondLevelMicroState55FieldId                , PeridigmField::STEP_N);
+    Bms55_NP1          = blockIt->getData( m_bondLevelMicroState55FieldId                , PeridigmField::STEP_NP1);
+    Bms56_N            = blockIt->getData( m_bondLevelMicroState56FieldId                , PeridigmField::STEP_N);
+    Bms56_NP1          = blockIt->getData( m_bondLevelMicroState56FieldId                , PeridigmField::STEP_NP1);
+    Bms57_N            = blockIt->getData( m_bondLevelMicroState57FieldId                , PeridigmField::STEP_N);
+    Bms57_NP1          = blockIt->getData( m_bondLevelMicroState57FieldId                , PeridigmField::STEP_NP1);
+    Bms58_N            = blockIt->getData( m_bondLevelMicroState58FieldId                , PeridigmField::STEP_N);
+    Bms58_NP1          = blockIt->getData( m_bondLevelMicroState58FieldId                , PeridigmField::STEP_NP1);
+    Bms59_N            = blockIt->getData( m_bondLevelMicroState59FieldId                , PeridigmField::STEP_N);
+    Bms59_NP1          = blockIt->getData( m_bondLevelMicroState59FieldId                , PeridigmField::STEP_NP1);
+    Bms60_N            = blockIt->getData( m_bondLevelMicroState60FieldId                , PeridigmField::STEP_N);
+    Bms60_NP1          = blockIt->getData( m_bondLevelMicroState60FieldId                , PeridigmField::STEP_NP1);
+
+    Bms61_N            = blockIt->getData( m_bondLevelMicroState61FieldId                , PeridigmField::STEP_N);
+    Bms61_NP1          = blockIt->getData( m_bondLevelMicroState61FieldId                , PeridigmField::STEP_NP1);
+    Bms62_N            = blockIt->getData( m_bondLevelMicroState62FieldId                , PeridigmField::STEP_N);
+    Bms62_NP1          = blockIt->getData( m_bondLevelMicroState62FieldId                , PeridigmField::STEP_NP1);
+    Bms63_N            = blockIt->getData( m_bondLevelMicroState63FieldId                , PeridigmField::STEP_N);
+    Bms63_NP1          = blockIt->getData( m_bondLevelMicroState63FieldId                , PeridigmField::STEP_NP1);
+    Bms64_N            = blockIt->getData( m_bondLevelMicroState64FieldId                , PeridigmField::STEP_N);
+    Bms64_NP1          = blockIt->getData( m_bondLevelMicroState64FieldId                , PeridigmField::STEP_NP1);
+    Bms65_N            = blockIt->getData( m_bondLevelMicroState65FieldId                , PeridigmField::STEP_N);
+    Bms65_NP1          = blockIt->getData( m_bondLevelMicroState65FieldId                , PeridigmField::STEP_NP1);
+    Bms66_N            = blockIt->getData( m_bondLevelMicroState66FieldId                , PeridigmField::STEP_N);
+    Bms66_NP1          = blockIt->getData( m_bondLevelMicroState66FieldId                , PeridigmField::STEP_NP1);
+    Bms67_N            = blockIt->getData( m_bondLevelMicroState67FieldId                , PeridigmField::STEP_N);
+    Bms67_NP1          = blockIt->getData( m_bondLevelMicroState67FieldId                , PeridigmField::STEP_NP1);
+    Bms68_N            = blockIt->getData( m_bondLevelMicroState68FieldId                , PeridigmField::STEP_N);
+    Bms68_NP1          = blockIt->getData( m_bondLevelMicroState68FieldId                , PeridigmField::STEP_NP1);
+    Bms69_N            = blockIt->getData( m_bondLevelMicroState69FieldId                , PeridigmField::STEP_N);
+    Bms69_NP1          = blockIt->getData( m_bondLevelMicroState69FieldId                , PeridigmField::STEP_NP1);
+    Bms70_N            = blockIt->getData( m_bondLevelMicroState70FieldId                , PeridigmField::STEP_N);
+    Bms70_NP1          = blockIt->getData( m_bondLevelMicroState70FieldId                , PeridigmField::STEP_NP1);
+
+    Bms71_N            = blockIt->getData( m_bondLevelMicroState71FieldId                , PeridigmField::STEP_N);
+    Bms71_NP1          = blockIt->getData( m_bondLevelMicroState71FieldId                , PeridigmField::STEP_NP1);
+    Bms72_N            = blockIt->getData( m_bondLevelMicroState72FieldId                , PeridigmField::STEP_N);
+    Bms72_NP1          = blockIt->getData( m_bondLevelMicroState72FieldId                , PeridigmField::STEP_NP1);
+    Bms73_N            = blockIt->getData( m_bondLevelMicroState73FieldId                , PeridigmField::STEP_N);
+    Bms73_NP1          = blockIt->getData( m_bondLevelMicroState73FieldId                , PeridigmField::STEP_NP1);
+    Bms74_N            = blockIt->getData( m_bondLevelMicroState74FieldId                , PeridigmField::STEP_N);
+    Bms74_NP1          = blockIt->getData( m_bondLevelMicroState74FieldId                , PeridigmField::STEP_NP1);
+    Bms75_N            = blockIt->getData( m_bondLevelMicroState75FieldId                , PeridigmField::STEP_N);
+    Bms75_NP1          = blockIt->getData( m_bondLevelMicroState75FieldId                , PeridigmField::STEP_NP1);
+    Bms76_N            = blockIt->getData( m_bondLevelMicroState76FieldId                , PeridigmField::STEP_N);
+    Bms76_NP1          = blockIt->getData( m_bondLevelMicroState76FieldId                , PeridigmField::STEP_NP1);
+    Bms77_N            = blockIt->getData( m_bondLevelMicroState77FieldId                , PeridigmField::STEP_N);
+    Bms77_NP1          = blockIt->getData( m_bondLevelMicroState77FieldId                , PeridigmField::STEP_NP1);
+    Bms78_N            = blockIt->getData( m_bondLevelMicroState78FieldId                , PeridigmField::STEP_N);
+    Bms78_NP1          = blockIt->getData( m_bondLevelMicroState78FieldId                , PeridigmField::STEP_NP1);
+    Bms79_N            = blockIt->getData( m_bondLevelMicroState79FieldId                , PeridigmField::STEP_N);
+    Bms79_NP1          = blockIt->getData( m_bondLevelMicroState79FieldId                , PeridigmField::STEP_NP1);
+    Bms80_N            = blockIt->getData( m_bondLevelMicroState80FieldId                , PeridigmField::STEP_N);
+    Bms80_NP1          = blockIt->getData( m_bondLevelMicroState80FieldId                , PeridigmField::STEP_NP1);
+
+    Bms81_N            = blockIt->getData( m_bondLevelMicroState81FieldId                , PeridigmField::STEP_N);
+    Bms81_NP1          = blockIt->getData( m_bondLevelMicroState81FieldId                , PeridigmField::STEP_NP1);
+    Bms82_N            = blockIt->getData( m_bondLevelMicroState82FieldId                , PeridigmField::STEP_N);
+    Bms82_NP1          = blockIt->getData( m_bondLevelMicroState82FieldId                , PeridigmField::STEP_NP1);
+    Bms83_N            = blockIt->getData( m_bondLevelMicroState83FieldId                , PeridigmField::STEP_N);
+    Bms83_NP1          = blockIt->getData( m_bondLevelMicroState83FieldId                , PeridigmField::STEP_NP1);
+    Bms84_N            = blockIt->getData( m_bondLevelMicroState84FieldId                , PeridigmField::STEP_N);
+    Bms84_NP1          = blockIt->getData( m_bondLevelMicroState84FieldId                , PeridigmField::STEP_NP1);
+    Bms85_N            = blockIt->getData( m_bondLevelMicroState85FieldId                , PeridigmField::STEP_N);
+    Bms85_NP1          = blockIt->getData( m_bondLevelMicroState85FieldId                , PeridigmField::STEP_NP1);
+    Bms86_N            = blockIt->getData( m_bondLevelMicroState86FieldId                , PeridigmField::STEP_N);
+    Bms86_NP1          = blockIt->getData( m_bondLevelMicroState86FieldId                , PeridigmField::STEP_NP1);
+    Bms87_N            = blockIt->getData( m_bondLevelMicroState87FieldId                , PeridigmField::STEP_N);
+    Bms87_NP1          = blockIt->getData( m_bondLevelMicroState87FieldId                , PeridigmField::STEP_NP1);
+    Bms88_N            = blockIt->getData( m_bondLevelMicroState88FieldId                , PeridigmField::STEP_N);
+    Bms88_NP1          = blockIt->getData( m_bondLevelMicroState88FieldId                , PeridigmField::STEP_NP1);
+    Bms89_N            = blockIt->getData( m_bondLevelMicroState89FieldId                , PeridigmField::STEP_N);
+    Bms89_NP1          = blockIt->getData( m_bondLevelMicroState89FieldId                , PeridigmField::STEP_NP1);
+    Bms90_N            = blockIt->getData( m_bondLevelMicroState90FieldId                , PeridigmField::STEP_N);
+    Bms90_NP1          = blockIt->getData( m_bondLevelMicroState90FieldId                , PeridigmField::STEP_NP1);
+
+    Bms91_N            = blockIt->getData( m_bondLevelMicroState91FieldId                , PeridigmField::STEP_N);
+    Bms91_NP1          = blockIt->getData( m_bondLevelMicroState91FieldId                , PeridigmField::STEP_NP1);
+    Bms92_N            = blockIt->getData( m_bondLevelMicroState92FieldId                , PeridigmField::STEP_N);
+    Bms92_NP1          = blockIt->getData( m_bondLevelMicroState92FieldId                , PeridigmField::STEP_NP1);
+    Bms93_N            = blockIt->getData( m_bondLevelMicroState93FieldId                , PeridigmField::STEP_N);
+    Bms93_NP1          = blockIt->getData( m_bondLevelMicroState93FieldId                , PeridigmField::STEP_NP1);
+    Bms94_N            = blockIt->getData( m_bondLevelMicroState94FieldId                , PeridigmField::STEP_N);
+    Bms94_NP1          = blockIt->getData( m_bondLevelMicroState94FieldId                , PeridigmField::STEP_NP1);
+    Bms95_N            = blockIt->getData( m_bondLevelMicroState95FieldId                , PeridigmField::STEP_N);
+    Bms95_NP1          = blockIt->getData( m_bondLevelMicroState95FieldId                , PeridigmField::STEP_NP1);
+    Bms96_N            = blockIt->getData( m_bondLevelMicroState96FieldId                , PeridigmField::STEP_N);
+    Bms96_NP1          = blockIt->getData( m_bondLevelMicroState96FieldId                , PeridigmField::STEP_NP1);
+    Bms97_N            = blockIt->getData( m_bondLevelMicroState97FieldId                , PeridigmField::STEP_N);
+    Bms97_NP1          = blockIt->getData( m_bondLevelMicroState97FieldId                , PeridigmField::STEP_NP1);
+    Bms98_N            = blockIt->getData( m_bondLevelMicroState98FieldId                , PeridigmField::STEP_N);
+    Bms98_NP1          = blockIt->getData( m_bondLevelMicroState98FieldId                , PeridigmField::STEP_NP1);
+    Bms99_N            = blockIt->getData( m_bondLevelMicroState99FieldId                , PeridigmField::STEP_N);
+    Bms99_NP1          = blockIt->getData( m_bondLevelMicroState99FieldId                , PeridigmField::STEP_NP1);
+    Bms100_N            = blockIt->getData( m_bondLevelMicroState100FieldId                , PeridigmField::STEP_N);
+    Bms100_NP1          = blockIt->getData( m_bondLevelMicroState100FieldId                , PeridigmField::STEP_NP1);
+
+
+    Bms101_N            = blockIt->getData( m_bondLevelMicroState101FieldId                , PeridigmField::STEP_N);
+    Bms101_NP1          = blockIt->getData( m_bondLevelMicroState101FieldId                , PeridigmField::STEP_NP1);
+    Bms102_N            = blockIt->getData( m_bondLevelMicroState102FieldId                , PeridigmField::STEP_N);
+    Bms102_NP1          = blockIt->getData( m_bondLevelMicroState102FieldId                , PeridigmField::STEP_NP1);
+    Bms103_N            = blockIt->getData( m_bondLevelMicroState103FieldId                , PeridigmField::STEP_N);
+    Bms103_NP1          = blockIt->getData( m_bondLevelMicroState103FieldId                , PeridigmField::STEP_NP1);
+    Bms104_N            = blockIt->getData( m_bondLevelMicroState104FieldId                , PeridigmField::STEP_N);
+    Bms104_NP1          = blockIt->getData( m_bondLevelMicroState104FieldId                , PeridigmField::STEP_NP1);
+    Bms105_N            = blockIt->getData( m_bondLevelMicroState105FieldId                , PeridigmField::STEP_N);
+    Bms105_NP1          = blockIt->getData( m_bondLevelMicroState105FieldId                , PeridigmField::STEP_NP1);
+    Bms106_N            = blockIt->getData( m_bondLevelMicroState106FieldId                , PeridigmField::STEP_N);
+    Bms106_NP1          = blockIt->getData( m_bondLevelMicroState106FieldId                , PeridigmField::STEP_NP1);
+    Bms107_N            = blockIt->getData( m_bondLevelMicroState107FieldId                , PeridigmField::STEP_N);
+    Bms107_NP1          = blockIt->getData( m_bondLevelMicroState107FieldId                , PeridigmField::STEP_NP1);
+    Bms108_N            = blockIt->getData( m_bondLevelMicroState108FieldId                , PeridigmField::STEP_N);
+    Bms108_NP1          = blockIt->getData( m_bondLevelMicroState108FieldId                , PeridigmField::STEP_NP1);
+    Bms109_N            = blockIt->getData( m_bondLevelMicroState109FieldId                , PeridigmField::STEP_N);
+    Bms109_NP1          = blockIt->getData( m_bondLevelMicroState109FieldId                , PeridigmField::STEP_NP1);
+    Bms110_N           = blockIt->getData( m_bondLevelMicroState110FieldId                , PeridigmField::STEP_N);
+    Bms110_NP1         = blockIt->getData( m_bondLevelMicroState110FieldId                , PeridigmField::STEP_NP1);
+
+    Bms111_N            = blockIt->getData( m_bondLevelMicroState111FieldId                , PeridigmField::STEP_N);
+    Bms111_NP1          = blockIt->getData( m_bondLevelMicroState111FieldId                , PeridigmField::STEP_NP1);
+    Bms112_N            = blockIt->getData( m_bondLevelMicroState112FieldId                , PeridigmField::STEP_N);
+    Bms112_NP1          = blockIt->getData( m_bondLevelMicroState112FieldId                , PeridigmField::STEP_NP1);
+    Bms113_N            = blockIt->getData( m_bondLevelMicroState113FieldId                , PeridigmField::STEP_N);
+    Bms113_NP1          = blockIt->getData( m_bondLevelMicroState113FieldId                , PeridigmField::STEP_NP1);
+    Bms114_N            = blockIt->getData( m_bondLevelMicroState114FieldId                , PeridigmField::STEP_N);
+    Bms114_NP1          = blockIt->getData( m_bondLevelMicroState114FieldId                , PeridigmField::STEP_NP1);
+    Bms115_N            = blockIt->getData( m_bondLevelMicroState115FieldId                , PeridigmField::STEP_N);
+    Bms115_NP1          = blockIt->getData( m_bondLevelMicroState115FieldId                , PeridigmField::STEP_NP1);
+    Bms116_N            = blockIt->getData( m_bondLevelMicroState116FieldId                , PeridigmField::STEP_N);
+    Bms116_NP1          = blockIt->getData( m_bondLevelMicroState116FieldId                , PeridigmField::STEP_NP1);
+    Bms117_N            = blockIt->getData( m_bondLevelMicroState117FieldId                , PeridigmField::STEP_N);
+    Bms117_NP1          = blockIt->getData( m_bondLevelMicroState117FieldId                , PeridigmField::STEP_NP1);
+    Bms118_N            = blockIt->getData( m_bondLevelMicroState118FieldId                , PeridigmField::STEP_N);
+    Bms118_NP1          = blockIt->getData( m_bondLevelMicroState118FieldId                , PeridigmField::STEP_NP1);
+    Bms119_N            = blockIt->getData( m_bondLevelMicroState119FieldId                , PeridigmField::STEP_N);
+    Bms119_NP1          = blockIt->getData( m_bondLevelMicroState119FieldId                , PeridigmField::STEP_NP1);
+    Bms120_N           = blockIt->getData( m_bondLevelMicroState120FieldId                , PeridigmField::STEP_N);
+    Bms120_NP1         = blockIt->getData( m_bondLevelMicroState120FieldId                , PeridigmField::STEP_NP1);
+
+    Bms121_N            = blockIt->getData( m_bondLevelMicroState121FieldId                , PeridigmField::STEP_N);
+    Bms121_NP1          = blockIt->getData( m_bondLevelMicroState121FieldId                , PeridigmField::STEP_NP1);
+    Bms122_N            = blockIt->getData( m_bondLevelMicroState122FieldId                , PeridigmField::STEP_N);
+    Bms122_NP1          = blockIt->getData( m_bondLevelMicroState122FieldId                , PeridigmField::STEP_NP1);
+    Bms123_N            = blockIt->getData( m_bondLevelMicroState123FieldId                , PeridigmField::STEP_N);
+    Bms123_NP1          = blockIt->getData( m_bondLevelMicroState123FieldId                , PeridigmField::STEP_NP1);
+    Bms124_N            = blockIt->getData( m_bondLevelMicroState124FieldId                , PeridigmField::STEP_N);
+    Bms124_NP1          = blockIt->getData( m_bondLevelMicroState124FieldId                , PeridigmField::STEP_NP1);
+    Bms125_N            = blockIt->getData( m_bondLevelMicroState125FieldId                , PeridigmField::STEP_N);
+    Bms125_NP1          = blockIt->getData( m_bondLevelMicroState125FieldId                , PeridigmField::STEP_NP1);
+    Bms126_N            = blockIt->getData( m_bondLevelMicroState126FieldId                , PeridigmField::STEP_N);
+    Bms126_NP1          = blockIt->getData( m_bondLevelMicroState126FieldId                , PeridigmField::STEP_NP1);
+    Bms127_N            = blockIt->getData( m_bondLevelMicroState127FieldId                , PeridigmField::STEP_N);
+    Bms127_NP1          = blockIt->getData( m_bondLevelMicroState127FieldId                , PeridigmField::STEP_NP1);
+    Bms128_N            = blockIt->getData( m_bondLevelMicroState128FieldId                , PeridigmField::STEP_N);
+    Bms128_NP1          = blockIt->getData( m_bondLevelMicroState128FieldId                , PeridigmField::STEP_NP1);
+    Bms129_N            = blockIt->getData( m_bondLevelMicroState129FieldId                , PeridigmField::STEP_N);
+    Bms129_NP1          = blockIt->getData( m_bondLevelMicroState129FieldId                , PeridigmField::STEP_NP1);
+    Bms130_N           = blockIt->getData( m_bondLevelMicroState130FieldId                , PeridigmField::STEP_N);
+    Bms130_NP1         = blockIt->getData( m_bondLevelMicroState130FieldId                , PeridigmField::STEP_NP1);
+
+    Bms131_N            = blockIt->getData( m_bondLevelMicroState131FieldId                , PeridigmField::STEP_N);
+    Bms131_NP1          = blockIt->getData( m_bondLevelMicroState131FieldId                , PeridigmField::STEP_NP1);
+    Bms132_N            = blockIt->getData( m_bondLevelMicroState132FieldId                , PeridigmField::STEP_N);
+    Bms132_NP1          = blockIt->getData( m_bondLevelMicroState132FieldId                , PeridigmField::STEP_NP1);
+    Bms133_N            = blockIt->getData( m_bondLevelMicroState133FieldId                , PeridigmField::STEP_N);
+    Bms133_NP1          = blockIt->getData( m_bondLevelMicroState133FieldId                , PeridigmField::STEP_NP1);
+    Bms134_N            = blockIt->getData( m_bondLevelMicroState134FieldId                , PeridigmField::STEP_N);
+    Bms134_NP1          = blockIt->getData( m_bondLevelMicroState134FieldId                , PeridigmField::STEP_NP1);
+    Bms135_N            = blockIt->getData( m_bondLevelMicroState135FieldId                , PeridigmField::STEP_N);
+    Bms135_NP1          = blockIt->getData( m_bondLevelMicroState135FieldId                , PeridigmField::STEP_NP1);
+    Bms136_N            = blockIt->getData( m_bondLevelMicroState136FieldId                , PeridigmField::STEP_N);
+    Bms136_NP1          = blockIt->getData( m_bondLevelMicroState136FieldId                , PeridigmField::STEP_NP1);
+    Bms137_N            = blockIt->getData( m_bondLevelMicroState137FieldId                , PeridigmField::STEP_N);
+    Bms137_NP1          = blockIt->getData( m_bondLevelMicroState137FieldId                , PeridigmField::STEP_NP1);
+    Bms138_N            = blockIt->getData( m_bondLevelMicroState138FieldId                , PeridigmField::STEP_N);
+    Bms138_NP1          = blockIt->getData( m_bondLevelMicroState138FieldId                , PeridigmField::STEP_NP1);
+    Bms139_N            = blockIt->getData( m_bondLevelMicroState139FieldId                , PeridigmField::STEP_N);
+    Bms139_NP1          = blockIt->getData( m_bondLevelMicroState139FieldId                , PeridigmField::STEP_NP1);
+    Bms140_N           = blockIt->getData( m_bondLevelMicroState140FieldId                , PeridigmField::STEP_N);
+    Bms140_NP1         = blockIt->getData( m_bondLevelMicroState140FieldId                , PeridigmField::STEP_NP1);
+
+    Bms141_N            = blockIt->getData( m_bondLevelMicroState141FieldId                , PeridigmField::STEP_N);
+    Bms141_NP1          = blockIt->getData( m_bondLevelMicroState141FieldId                , PeridigmField::STEP_NP1);
+    Bms142_N            = blockIt->getData( m_bondLevelMicroState142FieldId                , PeridigmField::STEP_N);
+    Bms142_NP1          = blockIt->getData( m_bondLevelMicroState142FieldId                , PeridigmField::STEP_NP1);
+    Bms143_N            = blockIt->getData( m_bondLevelMicroState143FieldId                , PeridigmField::STEP_N);
+    Bms143_NP1          = blockIt->getData( m_bondLevelMicroState143FieldId                , PeridigmField::STEP_NP1);
+    Bms144_N            = blockIt->getData( m_bondLevelMicroState144FieldId                , PeridigmField::STEP_N);
+    Bms144_NP1          = blockIt->getData( m_bondLevelMicroState144FieldId                , PeridigmField::STEP_NP1);
+    Bms145_N            = blockIt->getData( m_bondLevelMicroState145FieldId                , PeridigmField::STEP_N);
+    Bms145_NP1          = blockIt->getData( m_bondLevelMicroState145FieldId                , PeridigmField::STEP_NP1);
+    Bms146_N            = blockIt->getData( m_bondLevelMicroState146FieldId                , PeridigmField::STEP_N);
+    Bms146_NP1          = blockIt->getData( m_bondLevelMicroState146FieldId                , PeridigmField::STEP_NP1);
+    Bms147_N            = blockIt->getData( m_bondLevelMicroState147FieldId                , PeridigmField::STEP_N);
+    Bms147_NP1          = blockIt->getData( m_bondLevelMicroState147FieldId                , PeridigmField::STEP_NP1);
+    Bms148_N            = blockIt->getData( m_bondLevelMicroState148FieldId                , PeridigmField::STEP_N);
+    Bms148_NP1          = blockIt->getData( m_bondLevelMicroState148FieldId                , PeridigmField::STEP_NP1);
+    Bms149_N            = blockIt->getData( m_bondLevelMicroState149FieldId                , PeridigmField::STEP_N);
+    Bms149_NP1          = blockIt->getData( m_bondLevelMicroState149FieldId                , PeridigmField::STEP_NP1);
+    Bms150_N           = blockIt->getData( m_bondLevelMicroState150FieldId                , PeridigmField::STEP_N);
+    Bms150_NP1         = blockIt->getData( m_bondLevelMicroState150FieldId                , PeridigmField::STEP_NP1);
+
+    Bms151_N            = blockIt->getData( m_bondLevelMicroState151FieldId                , PeridigmField::STEP_N);
+    Bms151_NP1          = blockIt->getData( m_bondLevelMicroState151FieldId                , PeridigmField::STEP_NP1);
+    Bms152_N            = blockIt->getData( m_bondLevelMicroState152FieldId                , PeridigmField::STEP_N);
+    Bms152_NP1          = blockIt->getData( m_bondLevelMicroState152FieldId                , PeridigmField::STEP_NP1);
+    Bms153_N            = blockIt->getData( m_bondLevelMicroState153FieldId                , PeridigmField::STEP_N);
+    Bms153_NP1          = blockIt->getData( m_bondLevelMicroState153FieldId                , PeridigmField::STEP_NP1);
+    Bms154_N            = blockIt->getData( m_bondLevelMicroState154FieldId                , PeridigmField::STEP_N);
+    Bms154_NP1          = blockIt->getData( m_bondLevelMicroState154FieldId                , PeridigmField::STEP_NP1);
+    Bms155_N            = blockIt->getData( m_bondLevelMicroState155FieldId                , PeridigmField::STEP_N);
+    Bms155_NP1          = blockIt->getData( m_bondLevelMicroState155FieldId                , PeridigmField::STEP_NP1);
+    Bms156_N            = blockIt->getData( m_bondLevelMicroState156FieldId                , PeridigmField::STEP_N);
+    Bms156_NP1          = blockIt->getData( m_bondLevelMicroState156FieldId                , PeridigmField::STEP_NP1);
+    Bms157_N            = blockIt->getData( m_bondLevelMicroState157FieldId                , PeridigmField::STEP_N);
+    Bms157_NP1          = blockIt->getData( m_bondLevelMicroState157FieldId                , PeridigmField::STEP_NP1);
+    Bms158_N            = blockIt->getData( m_bondLevelMicroState158FieldId                , PeridigmField::STEP_N);
+    Bms158_NP1          = blockIt->getData( m_bondLevelMicroState158FieldId                , PeridigmField::STEP_NP1);
+    Bms159_N            = blockIt->getData( m_bondLevelMicroState159FieldId                , PeridigmField::STEP_N);
+    Bms159_NP1          = blockIt->getData( m_bondLevelMicroState159FieldId                , PeridigmField::STEP_NP1);
+    Bms160_N            = blockIt->getData( m_bondLevelMicroState160FieldId                , PeridigmField::STEP_N);
+    Bms160_NP1          = blockIt->getData( m_bondLevelMicroState160FieldId                , PeridigmField::STEP_NP1);
+
+    Bms161_N            = blockIt->getData( m_bondLevelMicroState161FieldId                , PeridigmField::STEP_N);
+    Bms161_NP1          = blockIt->getData( m_bondLevelMicroState161FieldId                , PeridigmField::STEP_NP1);
+    Bms162_N            = blockIt->getData( m_bondLevelMicroState162FieldId                , PeridigmField::STEP_N);
+    Bms162_NP1          = blockIt->getData( m_bondLevelMicroState162FieldId                , PeridigmField::STEP_NP1);
+    Bms163_N            = blockIt->getData( m_bondLevelMicroState163FieldId                , PeridigmField::STEP_N);
+    Bms163_NP1          = blockIt->getData( m_bondLevelMicroState163FieldId                , PeridigmField::STEP_NP1);
+    Bms164_N            = blockIt->getData( m_bondLevelMicroState164FieldId                , PeridigmField::STEP_N);
+    Bms164_NP1          = blockIt->getData( m_bondLevelMicroState164FieldId                , PeridigmField::STEP_NP1);
+    Bms165_N            = blockIt->getData( m_bondLevelMicroState165FieldId                , PeridigmField::STEP_N);
+    Bms165_NP1          = blockIt->getData( m_bondLevelMicroState165FieldId                , PeridigmField::STEP_NP1);
+    Bms166_N            = blockIt->getData( m_bondLevelMicroState166FieldId                , PeridigmField::STEP_N);
+    Bms166_NP1          = blockIt->getData( m_bondLevelMicroState166FieldId                , PeridigmField::STEP_NP1);
+    Bms167_N            = blockIt->getData( m_bondLevelMicroState167FieldId                , PeridigmField::STEP_N);
+    Bms167_NP1          = blockIt->getData( m_bondLevelMicroState167FieldId                , PeridigmField::STEP_NP1);
+    Bms168_N            = blockIt->getData( m_bondLevelMicroState168FieldId                , PeridigmField::STEP_N);
+    Bms168_NP1          = blockIt->getData( m_bondLevelMicroState168FieldId                , PeridigmField::STEP_NP1);
+    Bms169_N            = blockIt->getData( m_bondLevelMicroState169FieldId                , PeridigmField::STEP_N);
+    Bms169_NP1          = blockIt->getData( m_bondLevelMicroState169FieldId                , PeridigmField::STEP_NP1);
+    Bms170_N            = blockIt->getData( m_bondLevelMicroState170FieldId                , PeridigmField::STEP_N);
+    Bms170_NP1          = blockIt->getData( m_bondLevelMicroState170FieldId                , PeridigmField::STEP_NP1);
+
+    Bms171_N            = blockIt->getData( m_bondLevelMicroState171FieldId                , PeridigmField::STEP_N);
+    Bms171_NP1          = blockIt->getData( m_bondLevelMicroState171FieldId                , PeridigmField::STEP_NP1);
+    Bms172_N            = blockIt->getData( m_bondLevelMicroState172FieldId                , PeridigmField::STEP_N);
+    Bms172_NP1          = blockIt->getData( m_bondLevelMicroState172FieldId                , PeridigmField::STEP_NP1);
+    Bms173_N            = blockIt->getData( m_bondLevelMicroState173FieldId                , PeridigmField::STEP_N);
+    Bms173_NP1          = blockIt->getData( m_bondLevelMicroState173FieldId                , PeridigmField::STEP_NP1);
+    Bms174_N            = blockIt->getData( m_bondLevelMicroState174FieldId                , PeridigmField::STEP_N);
+    Bms174_NP1          = blockIt->getData( m_bondLevelMicroState174FieldId                , PeridigmField::STEP_NP1);
+    Bms175_N            = blockIt->getData( m_bondLevelMicroState175FieldId                , PeridigmField::STEP_N);
+    Bms175_NP1          = blockIt->getData( m_bondLevelMicroState175FieldId                , PeridigmField::STEP_NP1);
+    Bms176_N            = blockIt->getData( m_bondLevelMicroState176FieldId                , PeridigmField::STEP_N);
+    Bms176_NP1          = blockIt->getData( m_bondLevelMicroState176FieldId                , PeridigmField::STEP_NP1);
+    Bms177_N            = blockIt->getData( m_bondLevelMicroState177FieldId                , PeridigmField::STEP_N);
+    Bms177_NP1          = blockIt->getData( m_bondLevelMicroState177FieldId                , PeridigmField::STEP_NP1);
+    Bms178_N            = blockIt->getData( m_bondLevelMicroState178FieldId                , PeridigmField::STEP_N);
+    Bms178_NP1          = blockIt->getData( m_bondLevelMicroState178FieldId                , PeridigmField::STEP_NP1);
+    Bms179_N            = blockIt->getData( m_bondLevelMicroState179FieldId                , PeridigmField::STEP_N);
+    Bms179_NP1          = blockIt->getData( m_bondLevelMicroState179FieldId                , PeridigmField::STEP_NP1);
+    Bms180_N            = blockIt->getData( m_bondLevelMicroState180FieldId                , PeridigmField::STEP_N);
+    Bms180_NP1          = blockIt->getData( m_bondLevelMicroState180FieldId                , PeridigmField::STEP_NP1);
+
+    Bms181_N            = blockIt->getData( m_bondLevelMicroState181FieldId                , PeridigmField::STEP_N);
+    Bms181_NP1          = blockIt->getData( m_bondLevelMicroState181FieldId                , PeridigmField::STEP_NP1);
+    Bms182_N            = blockIt->getData( m_bondLevelMicroState182FieldId                , PeridigmField::STEP_N);
+    Bms182_NP1          = blockIt->getData( m_bondLevelMicroState182FieldId                , PeridigmField::STEP_NP1);
+    Bms183_N            = blockIt->getData( m_bondLevelMicroState183FieldId                , PeridigmField::STEP_N);
+    Bms183_NP1          = blockIt->getData( m_bondLevelMicroState183FieldId                , PeridigmField::STEP_NP1);
+    Bms184_N            = blockIt->getData( m_bondLevelMicroState184FieldId                , PeridigmField::STEP_N);
+    Bms184_NP1          = blockIt->getData( m_bondLevelMicroState184FieldId                , PeridigmField::STEP_NP1);
+    Bms185_N            = blockIt->getData( m_bondLevelMicroState185FieldId                , PeridigmField::STEP_N);
+    Bms185_NP1          = blockIt->getData( m_bondLevelMicroState185FieldId                , PeridigmField::STEP_NP1);
+    Bms186_N            = blockIt->getData( m_bondLevelMicroState186FieldId                , PeridigmField::STEP_N);
+    Bms186_NP1          = blockIt->getData( m_bondLevelMicroState186FieldId                , PeridigmField::STEP_NP1);
+    Bms187_N            = blockIt->getData( m_bondLevelMicroState187FieldId                , PeridigmField::STEP_N);
+    Bms187_NP1          = blockIt->getData( m_bondLevelMicroState187FieldId                , PeridigmField::STEP_NP1);
+    Bms188_N            = blockIt->getData( m_bondLevelMicroState188FieldId                , PeridigmField::STEP_N);
+    Bms188_NP1          = blockIt->getData( m_bondLevelMicroState188FieldId                , PeridigmField::STEP_NP1);
+    Bms189_N            = blockIt->getData( m_bondLevelMicroState189FieldId                , PeridigmField::STEP_N);
+    Bms189_NP1          = blockIt->getData( m_bondLevelMicroState189FieldId                , PeridigmField::STEP_NP1);
+
+/////// Bond Level Microdamage //////////////////
+    Bmd1_N            = blockIt->getData( m_bondLevelMicroDamage1FieldId                , PeridigmField::STEP_N);
+    Bmd1_NP1          = blockIt->getData( m_bondLevelMicroDamage1FieldId                , PeridigmField::STEP_NP1);
+    Bmd2_N            = blockIt->getData( m_bondLevelMicroDamage2FieldId                , PeridigmField::STEP_N);
+    Bmd2_NP1          = blockIt->getData( m_bondLevelMicroDamage2FieldId                , PeridigmField::STEP_NP1);
+    Bmd3_N            = blockIt->getData( m_bondLevelMicroDamage3FieldId                , PeridigmField::STEP_N);
+    Bmd3_NP1          = blockIt->getData( m_bondLevelMicroDamage3FieldId                , PeridigmField::STEP_NP1);
+    Bmd4_N            = blockIt->getData( m_bondLevelMicroDamage4FieldId                , PeridigmField::STEP_N);
+    Bmd4_NP1          = blockIt->getData( m_bondLevelMicroDamage4FieldId                , PeridigmField::STEP_NP1);
+    Bmd5_N            = blockIt->getData( m_bondLevelMicroDamage5FieldId                , PeridigmField::STEP_N);
+    Bmd5_NP1          = blockIt->getData( m_bondLevelMicroDamage5FieldId                , PeridigmField::STEP_NP1);
+    Bmd6_N            = blockIt->getData( m_bondLevelMicroDamage6FieldId                , PeridigmField::STEP_N);
+    Bmd6_NP1          = blockIt->getData( m_bondLevelMicroDamage6FieldId                , PeridigmField::STEP_NP1);
+    Bmd7_N            = blockIt->getData( m_bondLevelMicroDamage7FieldId                , PeridigmField::STEP_N);
+    Bmd7_NP1          = blockIt->getData( m_bondLevelMicroDamage7FieldId                , PeridigmField::STEP_NP1);
+    Bmd8_N            = blockIt->getData( m_bondLevelMicroDamage8FieldId                , PeridigmField::STEP_N);
+    Bmd8_NP1          = blockIt->getData( m_bondLevelMicroDamage8FieldId                , PeridigmField::STEP_NP1);
+    Bmd9_N            = blockIt->getData( m_bondLevelMicroDamage9FieldId                , PeridigmField::STEP_N);
+    Bmd9_NP1          = blockIt->getData( m_bondLevelMicroDamage9FieldId                , PeridigmField::STEP_NP1);
+    Bmd10_N           = blockIt->getData( m_bondLevelMicroDamage10FieldId               , PeridigmField::STEP_N);
+    Bmd10_NP1         = blockIt->getData( m_bondLevelMicroDamage10FieldId               , PeridigmField::STEP_NP1);
+
+    Bmd11_N            = blockIt->getData( m_bondLevelMicroDamage11FieldId                , PeridigmField::STEP_N);
+    Bmd11_NP1          = blockIt->getData( m_bondLevelMicroDamage11FieldId                , PeridigmField::STEP_NP1);
+    Bmd12_N            = blockIt->getData( m_bondLevelMicroDamage12FieldId                , PeridigmField::STEP_N);
+    Bmd12_NP1          = blockIt->getData( m_bondLevelMicroDamage12FieldId                , PeridigmField::STEP_NP1);
+    Bmd13_N            = blockIt->getData( m_bondLevelMicroDamage13FieldId                , PeridigmField::STEP_N);
+    Bmd13_NP1          = blockIt->getData( m_bondLevelMicroDamage13FieldId                , PeridigmField::STEP_NP1);
+    Bmd14_N            = blockIt->getData( m_bondLevelMicroDamage14FieldId                , PeridigmField::STEP_N);
+    Bmd14_NP1          = blockIt->getData( m_bondLevelMicroDamage14FieldId                , PeridigmField::STEP_NP1);
+    Bmd15_N            = blockIt->getData( m_bondLevelMicroDamage15FieldId                , PeridigmField::STEP_N);
+    Bmd15_NP1          = blockIt->getData( m_bondLevelMicroDamage15FieldId                , PeridigmField::STEP_NP1);
+    Bmd16_N            = blockIt->getData( m_bondLevelMicroDamage16FieldId                , PeridigmField::STEP_N);
+    Bmd16_NP1          = blockIt->getData( m_bondLevelMicroDamage16FieldId                , PeridigmField::STEP_NP1);
+    Bmd17_N            = blockIt->getData( m_bondLevelMicroDamage17FieldId                , PeridigmField::STEP_N);
+    Bmd17_NP1          = blockIt->getData( m_bondLevelMicroDamage17FieldId                , PeridigmField::STEP_NP1);
+    Bmd18_N            = blockIt->getData( m_bondLevelMicroDamage18FieldId                , PeridigmField::STEP_N);
+    Bmd18_NP1          = blockIt->getData( m_bondLevelMicroDamage18FieldId                , PeridigmField::STEP_NP1);
+    Bmd19_N            = blockIt->getData( m_bondLevelMicroDamage19FieldId                , PeridigmField::STEP_N);
+    Bmd19_NP1          = blockIt->getData( m_bondLevelMicroDamage19FieldId                , PeridigmField::STEP_NP1);
+    Bmd20_N            = blockIt->getData( m_bondLevelMicroDamage20FieldId                , PeridigmField::STEP_N);
+    Bmd20_NP1          = blockIt->getData( m_bondLevelMicroDamage20FieldId                , PeridigmField::STEP_NP1);
+
+    Bmd21_N            = blockIt->getData( m_bondLevelMicroDamage21FieldId                , PeridigmField::STEP_N);
+    Bmd21_NP1          = blockIt->getData( m_bondLevelMicroDamage21FieldId                , PeridigmField::STEP_NP1);
+    Bmd22_N            = blockIt->getData( m_bondLevelMicroDamage22FieldId                , PeridigmField::STEP_N);
+    Bmd22_NP1          = blockIt->getData( m_bondLevelMicroDamage22FieldId                , PeridigmField::STEP_NP1);
+    Bmd23_N            = blockIt->getData( m_bondLevelMicroDamage23FieldId                , PeridigmField::STEP_N);
+    Bmd23_NP1          = blockIt->getData( m_bondLevelMicroDamage23FieldId                , PeridigmField::STEP_NP1);
+    Bmd24_N            = blockIt->getData( m_bondLevelMicroDamage24FieldId                , PeridigmField::STEP_N);
+    Bmd24_NP1          = blockIt->getData( m_bondLevelMicroDamage24FieldId                , PeridigmField::STEP_NP1);
+    Bmd25_N            = blockIt->getData( m_bondLevelMicroDamage25FieldId                , PeridigmField::STEP_N);
+    Bmd25_NP1          = blockIt->getData( m_bondLevelMicroDamage25FieldId                , PeridigmField::STEP_NP1);
+    Bmd26_N            = blockIt->getData( m_bondLevelMicroDamage26FieldId                , PeridigmField::STEP_N);
+    Bmd26_NP1          = blockIt->getData( m_bondLevelMicroDamage26FieldId                , PeridigmField::STEP_NP1);
+    Bmd27_N            = blockIt->getData( m_bondLevelMicroDamage27FieldId                , PeridigmField::STEP_N);
+    Bmd27_NP1          = blockIt->getData( m_bondLevelMicroDamage27FieldId                , PeridigmField::STEP_NP1);
+    Bmd28_N            = blockIt->getData( m_bondLevelMicroDamage28FieldId                , PeridigmField::STEP_N);
+    Bmd28_NP1          = blockIt->getData( m_bondLevelMicroDamage28FieldId                , PeridigmField::STEP_NP1);
+    Bmd29_N            = blockIt->getData( m_bondLevelMicroDamage29FieldId                , PeridigmField::STEP_N);
+    Bmd29_NP1          = blockIt->getData( m_bondLevelMicroDamage29FieldId                , PeridigmField::STEP_NP1);
+    Bmd30_N           = blockIt->getData( m_bondLevelMicroDamage30FieldId                , PeridigmField::STEP_N);
+    Bmd30_NP1         = blockIt->getData( m_bondLevelMicroDamage30FieldId                , PeridigmField::STEP_NP1);
+
+    Bmd31_N            = blockIt->getData( m_bondLevelMicroDamage31FieldId                , PeridigmField::STEP_N);
+    Bmd31_NP1          = blockIt->getData( m_bondLevelMicroDamage31FieldId                , PeridigmField::STEP_NP1);
+    Bmd32_N            = blockIt->getData( m_bondLevelMicroDamage32FieldId                , PeridigmField::STEP_N);
+    Bmd32_NP1          = blockIt->getData( m_bondLevelMicroDamage32FieldId                , PeridigmField::STEP_NP1);
+    Bmd33_N            = blockIt->getData( m_bondLevelMicroDamage33FieldId                , PeridigmField::STEP_N);
+    Bmd33_NP1          = blockIt->getData( m_bondLevelMicroDamage33FieldId                , PeridigmField::STEP_NP1);
+    Bmd34_N            = blockIt->getData( m_bondLevelMicroDamage34FieldId                , PeridigmField::STEP_N);
+    Bmd34_NP1          = blockIt->getData( m_bondLevelMicroDamage34FieldId                , PeridigmField::STEP_NP1);
+    Bmd35_N            = blockIt->getData( m_bondLevelMicroDamage35FieldId                , PeridigmField::STEP_N);
+    Bmd35_NP1          = blockIt->getData( m_bondLevelMicroDamage35FieldId                , PeridigmField::STEP_NP1);
+    Bmd36_N            = blockIt->getData( m_bondLevelMicroDamage36FieldId                , PeridigmField::STEP_N);
+    Bmd36_NP1          = blockIt->getData( m_bondLevelMicroDamage36FieldId                , PeridigmField::STEP_NP1);
+    Bmd37_N            = blockIt->getData( m_bondLevelMicroDamage37FieldId                , PeridigmField::STEP_N);
+    Bmd37_NP1          = blockIt->getData( m_bondLevelMicroDamage37FieldId                , PeridigmField::STEP_NP1);
+
+    weightedDamage       = blockIt->getData( m_weightedDamageFieldId                 , PeridigmField::STEP_NONE);
+    internalEnergy_N     = blockIt->getData( m_internalEnergyFieldId                 , PeridigmField::STEP_N);
+    internalEnergy_NP1   = blockIt->getData( m_internalEnergyFieldId                 , PeridigmField::STEP_NP1);
+    inelasticEnergy_N    = blockIt->getData( m_inelasticEnergyFieldId                , PeridigmField::STEP_N);
+    inelasticEnergy_NP1  = blockIt->getData( m_inelasticEnergyFieldId                , PeridigmField::STEP_NP1);
+    BinternalEnergy_N    = blockIt->getData( m_bondLevelinternalEnergyFieldId        , PeridigmField::STEP_N);
+    BinternalEnergy_NP1  = blockIt->getData( m_bondLevelinternalEnergyFieldId        , PeridigmField::STEP_NP1);
+    BinelasticEnergy_N   = blockIt->getData( m_bondLevelInelasticEnergyFieldId       , PeridigmField::STEP_N);
+    BinelasticEnergy_NP1 = blockIt->getData( m_bondLevelInelasticEnergyFieldId       , PeridigmField::STEP_NP1);
+    BweightedDamage      = blockIt->getData( m_bondLevelWeightedDamageFieldId       , PeridigmField::STEP_NONE);
+
+  }
+
+
+double *values_ms1_N            = ms1_N->Values();
+double *values_ms1_NP1          = ms1_NP1->Values();
+double *values_ms2_N            = ms2_N->Values();
+double *values_ms2_NP1          = ms2_NP1->Values();
+double *values_ms3_N            = ms3_N->Values();
+double *values_ms3_NP1          = ms3_NP1->Values();
+double *values_ms4_N            = ms4_N->Values();
+double *values_ms4_NP1          = ms4_NP1->Values();
+double *values_ms5_N            = ms5_N->Values();
+double *values_ms5_NP1          = ms5_NP1->Values();
+double *values_ms6_N            = ms6_N->Values();
+double *values_ms6_NP1          = ms6_NP1->Values();
+double *values_ms7_N            = ms7_N->Values();
+double *values_ms7_NP1          = ms7_NP1->Values();
+double *values_ms8_N            = ms8_N->Values();
+double *values_ms8_NP1          = ms8_NP1->Values();
+double *values_ms9_N            = ms9_N->Values();
+double *values_ms9_NP1          = ms9_NP1->Values();
+double *values_ms10_N           = ms10_N->Values();
+double *values_ms10_NP1         = ms10_NP1->Values();
+
+double *values_ms11_N            = ms11_N->Values();
+double *values_ms11_NP1          = ms11_NP1->Values();
+double *values_ms12_N            = ms12_N->Values();
+double *values_ms12_NP1          = ms12_NP1->Values();
+double *values_ms13_N            = ms13_N->Values();
+double *values_ms13_NP1          = ms13_NP1->Values();
+double *values_ms14_N            = ms14_N->Values();
+double *values_ms14_NP1          = ms14_NP1->Values();
+double *values_ms15_N            = ms15_N->Values();
+double *values_ms15_NP1          = ms15_NP1->Values();
+double *values_ms16_N            = ms16_N->Values();
+double *values_ms16_NP1          = ms16_NP1->Values();
+double *values_ms17_N            = ms17_N->Values();
+double *values_ms17_NP1          = ms17_NP1->Values();
+double *values_ms18_N            = ms18_N->Values();
+double *values_ms18_NP1          = ms18_NP1->Values();
+double *values_ms19_N            = ms19_N->Values();
+double *values_ms19_NP1          = ms19_NP1->Values();
+double *values_ms20_N           = ms20_N->Values();
+double *values_ms20_NP1         = ms20_NP1->Values();
+
+double *values_ms21_N            = ms21_N->Values();
+double *values_ms21_NP1          = ms21_NP1->Values();
+double *values_ms22_N            = ms22_N->Values();
+double *values_ms22_NP1          = ms22_NP1->Values();
+double *values_ms23_N            = ms23_N->Values();
+double *values_ms23_NP1          = ms23_NP1->Values();
+double *values_ms24_N            = ms24_N->Values();
+double *values_ms24_NP1          = ms24_NP1->Values();
+double *values_ms25_N            = ms25_N->Values();
+double *values_ms25_NP1          = ms25_NP1->Values();
+double *values_ms26_N            = ms26_N->Values();
+double *values_ms26_NP1          = ms26_NP1->Values();
+double *values_ms27_N            = ms27_N->Values();
+double *values_ms27_NP1          = ms27_NP1->Values();
+double *values_ms28_N            = ms28_N->Values();
+double *values_ms28_NP1          = ms28_NP1->Values();
+double *values_ms29_N            = ms29_N->Values();
+double *values_ms29_NP1          = ms29_NP1->Values();
+double *values_ms30_N           = ms30_N->Values();
+double *values_ms30_NP1         = ms30_NP1->Values();
+
+double *values_ms31_N            = ms31_N->Values();
+double *values_ms31_NP1          = ms31_NP1->Values();
+double *values_ms32_N            = ms32_N->Values();
+double *values_ms32_NP1          = ms32_NP1->Values();
+double *values_ms33_N            = ms33_N->Values();
+double *values_ms33_NP1          = ms33_NP1->Values();
+double *values_ms34_N            = ms34_N->Values();
+double *values_ms34_NP1          = ms34_NP1->Values();
+double *values_ms35_N            = ms35_N->Values();
+double *values_ms35_NP1          = ms35_NP1->Values();
+double *values_ms36_N            = ms36_N->Values();
+double *values_ms36_NP1          = ms36_NP1->Values();
+double *values_ms37_N            = ms37_N->Values();
+double *values_ms37_NP1          = ms37_NP1->Values();
+double *values_ms38_N            = ms38_N->Values();
+double *values_ms38_NP1          = ms38_NP1->Values();
+double *values_ms39_N            = ms39_N->Values();
+double *values_ms39_NP1          = ms39_NP1->Values();
+double *values_ms40_N           = ms40_N->Values();
+double *values_ms40_NP1         = ms40_NP1->Values();
+
+double *values_ms41_N            = ms41_N->Values();
+double *values_ms41_NP1          = ms41_NP1->Values();
+double *values_ms42_N            = ms42_N->Values();
+double *values_ms42_NP1          = ms42_NP1->Values();
+double *values_ms43_N            = ms43_N->Values();
+double *values_ms43_NP1          = ms43_NP1->Values();
+double *values_ms44_N            = ms44_N->Values();
+double *values_ms44_NP1          = ms44_NP1->Values();
+double *values_ms45_N            = ms45_N->Values();
+double *values_ms45_NP1          = ms45_NP1->Values();
+double *values_ms46_N            = ms46_N->Values();
+double *values_ms46_NP1          = ms46_NP1->Values();
+double *values_ms47_N            = ms47_N->Values();
+double *values_ms47_NP1          = ms47_NP1->Values();
+double *values_ms48_N            = ms48_N->Values();
+double *values_ms48_NP1          = ms48_NP1->Values();
+double *values_ms49_N            = ms49_N->Values();
+double *values_ms49_NP1          = ms49_NP1->Values();
+double *values_ms50_N           = ms50_N->Values();
+double *values_ms50_NP1         = ms50_NP1->Values();
+
+double *values_ms51_N            = ms51_N->Values();
+double *values_ms51_NP1          = ms51_NP1->Values();
+double *values_ms52_N            = ms52_N->Values();
+double *values_ms52_NP1          = ms52_NP1->Values();
+double *values_ms53_N            = ms53_N->Values();
+double *values_ms53_NP1          = ms53_NP1->Values();
+double *values_ms54_N            = ms54_N->Values();
+double *values_ms54_NP1          = ms54_NP1->Values();
+double *values_ms55_N            = ms55_N->Values();
+double *values_ms55_NP1          = ms55_NP1->Values();
+double *values_ms56_N            = ms56_N->Values();
+double *values_ms56_NP1          = ms56_NP1->Values();
+double *values_ms57_N            = ms57_N->Values();
+double *values_ms57_NP1          = ms57_NP1->Values();
+double *values_ms58_N            = ms58_N->Values();
+double *values_ms58_NP1          = ms58_NP1->Values();
+double *values_ms59_N            = ms59_N->Values();
+double *values_ms59_NP1          = ms59_NP1->Values();
+double *values_ms60_N            = ms60_N->Values();
+double *values_ms60_NP1          = ms60_NP1->Values();
+
+double *values_ms61_N            = ms61_N->Values();
+double *values_ms61_NP1          = ms61_NP1->Values();
+double *values_ms62_N            = ms62_N->Values();
+double *values_ms62_NP1          = ms62_NP1->Values();
+double *values_ms63_N            = ms63_N->Values();
+double *values_ms63_NP1          = ms63_NP1->Values();
+double *values_ms64_N            = ms64_N->Values();
+double *values_ms64_NP1          = ms64_NP1->Values();
+double *values_ms65_N            = ms65_N->Values();
+double *values_ms65_NP1          = ms65_NP1->Values();
+double *values_ms66_N            = ms66_N->Values();
+double *values_ms66_NP1          = ms66_NP1->Values();
+double *values_ms67_N            = ms67_N->Values();
+double *values_ms67_NP1          = ms67_NP1->Values();
+double *values_ms68_N            = ms68_N->Values();
+double *values_ms68_NP1          = ms68_NP1->Values();
+double *values_ms69_N            = ms69_N->Values();
+double *values_ms69_NP1          = ms69_NP1->Values();
+double *values_ms70_N            = ms70_N->Values();
+double *values_ms70_NP1          = ms70_NP1->Values();
+
+double *values_ms71_N            = ms71_N->Values();
+double *values_ms71_NP1          = ms71_NP1->Values();
+double *values_ms72_N            = ms72_N->Values();
+double *values_ms72_NP1          = ms72_NP1->Values();
+double *values_ms73_N            = ms73_N->Values();
+double *values_ms73_NP1          = ms73_NP1->Values();
+double *values_ms74_N            = ms74_N->Values();
+double *values_ms74_NP1          = ms74_NP1->Values();
+double *values_ms75_N            = ms75_N->Values();
+double *values_ms75_NP1          = ms75_NP1->Values();
+double *values_ms76_N            = ms76_N->Values();
+double *values_ms76_NP1          = ms76_NP1->Values();
+double *values_ms77_N            = ms77_N->Values();
+double *values_ms77_NP1          = ms77_NP1->Values();
+double *values_ms78_N            = ms78_N->Values();
+double *values_ms78_NP1          = ms78_NP1->Values();
+double *values_ms79_N            = ms79_N->Values();
+double *values_ms79_NP1          = ms79_NP1->Values();
+double *values_ms80_N            = ms80_N->Values();
+double *values_ms80_NP1          = ms80_NP1->Values();
+
+double *values_ms81_N            = ms81_N->Values();
+double *values_ms81_NP1          = ms81_NP1->Values();
+double *values_ms82_N            = ms82_N->Values();
+double *values_ms82_NP1          = ms82_NP1->Values();
+double *values_ms83_N            = ms83_N->Values();
+double *values_ms83_NP1          = ms83_NP1->Values();
+double *values_ms84_N            = ms84_N->Values();
+double *values_ms84_NP1          = ms84_NP1->Values();
+double *values_ms85_N            = ms85_N->Values();
+double *values_ms85_NP1          = ms85_NP1->Values();
+double *values_ms86_N            = ms86_N->Values();
+double *values_ms86_NP1          = ms86_NP1->Values();
+double *values_ms87_N            = ms87_N->Values();
+double *values_ms87_NP1          = ms87_NP1->Values();
+double *values_ms88_N            = ms88_N->Values();
+double *values_ms88_NP1          = ms88_NP1->Values();
+double *values_ms89_N            = ms89_N->Values();
+double *values_ms89_NP1          = ms89_NP1->Values();
+double *values_ms90_N            = ms90_N->Values();
+double *values_ms90_NP1          = ms90_NP1->Values();
+
+double *values_ms91_N            = ms91_N->Values();
+double *values_ms91_NP1          = ms91_NP1->Values();
+double *values_ms92_N            = ms92_N->Values();
+double *values_ms92_NP1          = ms92_NP1->Values();
+double *values_ms93_N            = ms93_N->Values();
+double *values_ms93_NP1          = ms93_NP1->Values();
+double *values_ms94_N            = ms94_N->Values();
+double *values_ms94_NP1          = ms94_NP1->Values();
+double *values_ms95_N            = ms95_N->Values();
+double *values_ms95_NP1          = ms95_NP1->Values();
+double *values_ms96_N            = ms96_N->Values();
+double *values_ms96_NP1          = ms96_NP1->Values();
+double *values_ms97_N            = ms97_N->Values();
+double *values_ms97_NP1          = ms97_NP1->Values();
+double *values_ms98_N            = ms98_N->Values();
+double *values_ms98_NP1          = ms98_NP1->Values();
+double *values_ms99_N            = ms99_N->Values();
+double *values_ms99_NP1          = ms99_NP1->Values();
+double *values_ms100_N            = ms100_N->Values();
+double *values_ms100_NP1          = ms100_NP1->Values();
+
+
+double *values_ms101_N            = ms101_N->Values();
+double *values_ms101_NP1          = ms101_NP1->Values();
+double *values_ms102_N            = ms102_N->Values();
+double *values_ms102_NP1          = ms102_NP1->Values();
+double *values_ms103_N            = ms103_N->Values();
+double *values_ms103_NP1          = ms103_NP1->Values();
+double *values_ms104_N            = ms104_N->Values();
+double *values_ms104_NP1          = ms104_NP1->Values();
+double *values_ms105_N            = ms105_N->Values();
+double *values_ms105_NP1          = ms105_NP1->Values();
+double *values_ms106_N            = ms106_N->Values();
+double *values_ms106_NP1          = ms106_NP1->Values();
+double *values_ms107_N            = ms107_N->Values();
+double *values_ms107_NP1          = ms107_NP1->Values();
+double *values_ms108_N            = ms108_N->Values();
+double *values_ms108_NP1          = ms108_NP1->Values();
+double *values_ms109_N            = ms109_N->Values();
+double *values_ms109_NP1          = ms109_NP1->Values();
+double *values_ms110_N           = ms110_N->Values();
+double *values_ms110_NP1         = ms110_NP1->Values();
+
+double *values_ms111_N            = ms111_N->Values();
+double *values_ms111_NP1          = ms111_NP1->Values();
+double *values_ms112_N            = ms112_N->Values();
+double *values_ms112_NP1          = ms112_NP1->Values();
+double *values_ms113_N            = ms113_N->Values();
+double *values_ms113_NP1          = ms113_NP1->Values();
+double *values_ms114_N            = ms114_N->Values();
+double *values_ms114_NP1          = ms114_NP1->Values();
+double *values_ms115_N            = ms115_N->Values();
+double *values_ms115_NP1          = ms115_NP1->Values();
+double *values_ms116_N            = ms116_N->Values();
+double *values_ms116_NP1          = ms116_NP1->Values();
+double *values_ms117_N            = ms117_N->Values();
+double *values_ms117_NP1          = ms117_NP1->Values();
+double *values_ms118_N            = ms118_N->Values();
+double *values_ms118_NP1          = ms118_NP1->Values();
+double *values_ms119_N            = ms119_N->Values();
+double *values_ms119_NP1          = ms119_NP1->Values();
+double *values_ms120_N           = ms120_N->Values();
+double *values_ms120_NP1         = ms120_NP1->Values();
+
+double *values_ms121_N            = ms121_N->Values();
+double *values_ms121_NP1          = ms121_NP1->Values();
+double *values_ms122_N            = ms122_N->Values();
+double *values_ms122_NP1          = ms122_NP1->Values();
+double *values_ms123_N            = ms123_N->Values();
+double *values_ms123_NP1          = ms123_NP1->Values();
+double *values_ms124_N            = ms124_N->Values();
+double *values_ms124_NP1          = ms124_NP1->Values();
+double *values_ms125_N            = ms125_N->Values();
+double *values_ms125_NP1          = ms125_NP1->Values();
+double *values_ms126_N            = ms126_N->Values();
+double *values_ms126_NP1          = ms126_NP1->Values();
+double *values_ms127_N            = ms127_N->Values();
+double *values_ms127_NP1          = ms127_NP1->Values();
+double *values_ms128_N            = ms128_N->Values();
+double *values_ms128_NP1          = ms128_NP1->Values();
+double *values_ms129_N            = ms129_N->Values();
+double *values_ms129_NP1          = ms129_NP1->Values();
+double *values_ms130_N           = ms130_N->Values();
+double *values_ms130_NP1         = ms130_NP1->Values();
+
+double *values_ms131_N            = ms131_N->Values();
+double *values_ms131_NP1          = ms131_NP1->Values();
+double *values_ms132_N            = ms132_N->Values();
+double *values_ms132_NP1          = ms132_NP1->Values();
+double *values_ms133_N            = ms133_N->Values();
+double *values_ms133_NP1          = ms133_NP1->Values();
+double *values_ms134_N            = ms134_N->Values();
+double *values_ms134_NP1          = ms134_NP1->Values();
+double *values_ms135_N            = ms135_N->Values();
+double *values_ms135_NP1          = ms135_NP1->Values();
+double *values_ms136_N            = ms136_N->Values();
+double *values_ms136_NP1          = ms136_NP1->Values();
+double *values_ms137_N            = ms137_N->Values();
+double *values_ms137_NP1          = ms137_NP1->Values();
+double *values_ms138_N            = ms138_N->Values();
+double *values_ms138_NP1          = ms138_NP1->Values();
+double *values_ms139_N            = ms139_N->Values();
+double *values_ms139_NP1          = ms139_NP1->Values();
+double *values_ms140_N           = ms140_N->Values();
+double *values_ms140_NP1         = ms140_NP1->Values();
+
+double *values_ms141_N            = ms141_N->Values();
+double *values_ms141_NP1          = ms141_NP1->Values();
+double *values_ms142_N            = ms142_N->Values();
+double *values_ms142_NP1          = ms142_NP1->Values();
+double *values_ms143_N            = ms143_N->Values();
+double *values_ms143_NP1          = ms143_NP1->Values();
+double *values_ms144_N            = ms144_N->Values();
+double *values_ms144_NP1          = ms144_NP1->Values();
+double *values_ms145_N            = ms145_N->Values();
+double *values_ms145_NP1          = ms145_NP1->Values();
+double *values_ms146_N            = ms146_N->Values();
+double *values_ms146_NP1          = ms146_NP1->Values();
+double *values_ms147_N            = ms147_N->Values();
+double *values_ms147_NP1          = ms147_NP1->Values();
+double *values_ms148_N            = ms148_N->Values();
+double *values_ms148_NP1          = ms148_NP1->Values();
+double *values_ms149_N            = ms149_N->Values();
+double *values_ms149_NP1          = ms149_NP1->Values();
+double *values_ms150_N           = ms150_N->Values();
+double *values_ms150_NP1         = ms150_NP1->Values();
+
+double *values_ms151_N            = ms151_N->Values();
+double *values_ms151_NP1          = ms151_NP1->Values();
+double *values_ms152_N            = ms152_N->Values();
+double *values_ms152_NP1          = ms152_NP1->Values();
+double *values_ms153_N            = ms153_N->Values();
+double *values_ms153_NP1          = ms153_NP1->Values();
+double *values_ms154_N            = ms154_N->Values();
+double *values_ms154_NP1          = ms154_NP1->Values();
+double *values_ms155_N            = ms155_N->Values();
+double *values_ms155_NP1          = ms155_NP1->Values();
+double *values_ms156_N            = ms156_N->Values();
+double *values_ms156_NP1          = ms156_NP1->Values();
+double *values_ms157_N            = ms157_N->Values();
+double *values_ms157_NP1          = ms157_NP1->Values();
+double *values_ms158_N            = ms158_N->Values();
+double *values_ms158_NP1          = ms158_NP1->Values();
+double *values_ms159_N            = ms159_N->Values();
+double *values_ms159_NP1          = ms159_NP1->Values();
+double *values_ms160_N            = ms160_N->Values();
+double *values_ms160_NP1          = ms160_NP1->Values();
+
+double *values_ms161_N            = ms161_N->Values();
+double *values_ms161_NP1          = ms161_NP1->Values();
+double *values_ms162_N            = ms162_N->Values();
+double *values_ms162_NP1          = ms162_NP1->Values();
+double *values_ms163_N            = ms163_N->Values();
+double *values_ms163_NP1          = ms163_NP1->Values();
+double *values_ms164_N            = ms164_N->Values();
+double *values_ms164_NP1          = ms164_NP1->Values();
+double *values_ms165_N            = ms165_N->Values();
+double *values_ms165_NP1          = ms165_NP1->Values();
+double *values_ms166_N            = ms166_N->Values();
+double *values_ms166_NP1          = ms166_NP1->Values();
+double *values_ms167_N            = ms167_N->Values();
+double *values_ms167_NP1          = ms167_NP1->Values();
+double *values_ms168_N            = ms168_N->Values();
+double *values_ms168_NP1          = ms168_NP1->Values();
+double *values_ms169_N            = ms169_N->Values();
+double *values_ms169_NP1          = ms169_NP1->Values();
+double *values_ms170_N            = ms170_N->Values();
+double *values_ms170_NP1          = ms170_NP1->Values();
+
+double *values_ms171_N            = ms171_N->Values();
+double *values_ms171_NP1          = ms171_NP1->Values();
+double *values_ms172_N            = ms172_N->Values();
+double *values_ms172_NP1          = ms172_NP1->Values();
+double *values_ms173_N            = ms173_N->Values();
+double *values_ms173_NP1          = ms173_NP1->Values();
+double *values_ms174_N            = ms174_N->Values();
+double *values_ms174_NP1          = ms174_NP1->Values();
+double *values_ms175_N            = ms175_N->Values();
+double *values_ms175_NP1          = ms175_NP1->Values();
+double *values_ms176_N            = ms176_N->Values();
+double *values_ms176_NP1          = ms176_NP1->Values();
+double *values_ms177_N            = ms177_N->Values();
+double *values_ms177_NP1          = ms177_NP1->Values();
+double *values_ms178_N            = ms178_N->Values();
+double *values_ms178_NP1          = ms178_NP1->Values();
+double *values_ms179_N            = ms179_N->Values();
+double *values_ms179_NP1          = ms179_NP1->Values();
+double *values_ms180_N            = ms180_N->Values();
+double *values_ms180_NP1          = ms180_NP1->Values();
+
+double *values_ms181_N            = ms181_N->Values();
+double *values_ms181_NP1          = ms181_NP1->Values();
+double *values_ms182_N            = ms182_N->Values();
+double *values_ms182_NP1          = ms182_NP1->Values();
+double *values_ms183_N            = ms183_N->Values();
+double *values_ms183_NP1          = ms183_NP1->Values();
+double *values_ms184_N            = ms184_N->Values();
+double *values_ms184_NP1          = ms184_NP1->Values();
+double *values_ms185_N            = ms185_N->Values();
+double *values_ms185_NP1          = ms185_NP1->Values();
+double *values_ms186_N            = ms186_N->Values();
+double *values_ms186_NP1          = ms186_NP1->Values();
+double *values_ms187_N            = ms187_N->Values();
+double *values_ms187_NP1          = ms187_NP1->Values();
+double *values_ms188_N            = ms188_N->Values();
+double *values_ms188_NP1          = ms188_NP1->Values();
+double *values_ms189_N            = ms189_N->Values();
+double *values_ms189_NP1          = ms189_NP1->Values();
+
+// Micro Damage
+
+double *values_md1_N            = md1_N->Values();
+double *values_md1_NP1          = md1_NP1->Values();
+double *values_md2_N            = md2_N->Values();
+double *values_md2_NP1          = md2_NP1->Values();
+double *values_md3_N            = md3_N->Values();
+double *values_md3_NP1          = md3_NP1->Values();
+double *values_md4_N            = md4_N->Values();
+double *values_md4_NP1          = md4_NP1->Values();
+double *values_md5_N            = md5_N->Values();
+double *values_md5_NP1          = md5_NP1->Values();
+double *values_md6_N            = md6_N->Values();
+double *values_md6_NP1          = md6_NP1->Values();
+double *values_md7_N            = md7_N->Values();
+double *values_md7_NP1          = md7_NP1->Values();
+double *values_md8_N            = md8_N->Values();
+double *values_md8_NP1          = md8_NP1->Values();
+double *values_md9_N            = md9_N->Values();
+double *values_md9_NP1          = md9_NP1->Values();
+double *values_md10_N           = md10_N->Values();
+double *values_md10_NP1         = md10_NP1->Values();
+
+double *values_md11_N            = md11_N->Values();
+double *values_md11_NP1          = md11_NP1->Values();
+double *values_md12_N            = md12_N->Values();
+double *values_md12_NP1          = md12_NP1->Values();
+double *values_md13_N            = md13_N->Values();
+double *values_md13_NP1          = md13_NP1->Values();
+double *values_md14_N            = md14_N->Values();
+double *values_md14_NP1          = md14_NP1->Values();
+double *values_md15_N            = md15_N->Values();
+double *values_md15_NP1          = md15_NP1->Values();
+double *values_md16_N            = md16_N->Values();
+double *values_md16_NP1          = md16_NP1->Values();
+double *values_md17_N            = md17_N->Values();
+double *values_md17_NP1          = md17_NP1->Values();
+double *values_md18_N            = md18_N->Values();
+double *values_md18_NP1          = md18_NP1->Values();
+double *values_md19_N            = md19_N->Values();
+double *values_md19_NP1          = md19_NP1->Values();
+double *values_md20_N           = md20_N->Values();
+double *values_md20_NP1         = md20_NP1->Values();
+
+double *values_md21_N            = md21_N->Values();
+double *values_md21_NP1          = md21_NP1->Values();
+double *values_md22_N            = md22_N->Values();
+double *values_md22_NP1          = md22_NP1->Values();
+double *values_md23_N            = md23_N->Values();
+double *values_md23_NP1          = md23_NP1->Values();
+double *values_md24_N            = md24_N->Values();
+double *values_md24_NP1          = md24_NP1->Values();
+double *values_md25_N            = md25_N->Values();
+double *values_md25_NP1          = md25_NP1->Values();
+double *values_md26_N            = md26_N->Values();
+double *values_md26_NP1          = md26_NP1->Values();
+double *values_md27_N            = md27_N->Values();
+double *values_md27_NP1          = md27_NP1->Values();
+double *values_md28_N            = md28_N->Values();
+double *values_md28_NP1          = md28_NP1->Values();
+double *values_md29_N            = md29_N->Values();
+double *values_md29_NP1          = md29_NP1->Values();
+double *values_md30_N            = md30_N->Values();
+double *values_md30_NP1          = md30_NP1->Values();
+
+double *values_md31_N            = md31_N->Values();
+double *values_md31_NP1          = md31_NP1->Values();
+double *values_md32_N            = md32_N->Values();
+double *values_md32_NP1          = md32_NP1->Values();
+double *values_md33_N            = md33_N->Values();
+double *values_md33_NP1          = md33_NP1->Values();
+double *values_md34_N            = md34_N->Values();
+double *values_md34_NP1          = md34_NP1->Values();
+double *values_md35_N            = md35_N->Values();
+double *values_md35_NP1          = md35_NP1->Values();
+double *values_md36_N            = md36_N->Values();
+double *values_md36_NP1          = md36_NP1->Values();
+double *values_md37_N            = md37_N->Values();
+double *values_md37_NP1          = md37_NP1->Values();
+
+/////// Bond Level Microstates //////////////////
+double *values_Bms1_N            = Bms1_N->Values();
+double *values_Bms1_NP1          = Bms1_NP1->Values();
+double *values_Bms2_N            = Bms2_N->Values();
+double *values_Bms2_NP1          = Bms2_NP1->Values();
+double *values_Bms3_N            = Bms3_N->Values();
+double *values_Bms3_NP1          = Bms3_NP1->Values();
+double *values_Bms4_N            = Bms4_N->Values();
+double *values_Bms4_NP1          = Bms4_NP1->Values();
+double *values_Bms5_N            = Bms5_N->Values();
+double *values_Bms5_NP1          = Bms5_NP1->Values();
+double *values_Bms6_N            = Bms6_N->Values();
+double *values_Bms6_NP1          = Bms6_NP1->Values();
+double *values_Bms7_N            = Bms7_N->Values();
+double *values_Bms7_NP1          = Bms7_NP1->Values();
+double *values_Bms8_N            = Bms8_N->Values();
+double *values_Bms8_NP1          = Bms8_NP1->Values();
+double *values_Bms9_N            = Bms9_N->Values();
+double *values_Bms9_NP1          = Bms9_NP1->Values();
+double *values_Bms10_N           = Bms10_N->Values();
+double *values_Bms10_NP1         = Bms10_NP1->Values();
+
+double *values_Bms11_N            = Bms11_N->Values();
+double *values_Bms11_NP1          = Bms11_NP1->Values();
+double *values_Bms12_N            = Bms12_N->Values();
+double *values_Bms12_NP1          = Bms12_NP1->Values();
+double *values_Bms13_N            = Bms13_N->Values();
+double *values_Bms13_NP1          = Bms13_NP1->Values();
+double *values_Bms14_N            = Bms14_N->Values();
+double *values_Bms14_NP1          = Bms14_NP1->Values();
+double *values_Bms15_N            = Bms15_N->Values();
+double *values_Bms15_NP1          = Bms15_NP1->Values();
+double *values_Bms16_N            = Bms16_N->Values();
+double *values_Bms16_NP1          = Bms16_NP1->Values();
+double *values_Bms17_N            = Bms17_N->Values();
+double *values_Bms17_NP1          = Bms17_NP1->Values();
+double *values_Bms18_N            = Bms18_N->Values();
+double *values_Bms18_NP1          = Bms18_NP1->Values();
+double *values_Bms19_N            = Bms19_N->Values();
+double *values_Bms19_NP1          = Bms19_NP1->Values();
+double *values_Bms20_N           = Bms20_N->Values();
+double *values_Bms20_NP1         = Bms20_NP1->Values();
+
+double *values_Bms21_N            = Bms21_N->Values();
+double *values_Bms21_NP1          = Bms21_NP1->Values();
+double *values_Bms22_N            = Bms22_N->Values();
+double *values_Bms22_NP1          = Bms22_NP1->Values();
+double *values_Bms23_N            = Bms23_N->Values();
+double *values_Bms23_NP1          = Bms23_NP1->Values();
+double *values_Bms24_N            = Bms24_N->Values();
+double *values_Bms24_NP1          = Bms24_NP1->Values();
+double *values_Bms25_N            = Bms25_N->Values();
+double *values_Bms25_NP1          = Bms25_NP1->Values();
+double *values_Bms26_N            = Bms26_N->Values();
+double *values_Bms26_NP1          = Bms26_NP1->Values();
+double *values_Bms27_N            = Bms27_N->Values();
+double *values_Bms27_NP1          = Bms27_NP1->Values();
+double *values_Bms28_N            = Bms28_N->Values();
+double *values_Bms28_NP1          = Bms28_NP1->Values();
+double *values_Bms29_N            = Bms29_N->Values();
+double *values_Bms29_NP1          = Bms29_NP1->Values();
+double *values_Bms30_N           = Bms30_N->Values();
+double *values_Bms30_NP1         = Bms30_NP1->Values();
+
+double *values_Bms31_N            = Bms31_N->Values();
+double *values_Bms31_NP1          = Bms31_NP1->Values();
+double *values_Bms32_N            = Bms32_N->Values();
+double *values_Bms32_NP1          = Bms32_NP1->Values();
+double *values_Bms33_N            = Bms33_N->Values();
+double *values_Bms33_NP1          = Bms33_NP1->Values();
+double *values_Bms34_N            = Bms34_N->Values();
+double *values_Bms34_NP1          = Bms34_NP1->Values();
+double *values_Bms35_N            = Bms35_N->Values();
+double *values_Bms35_NP1          = Bms35_NP1->Values();
+double *values_Bms36_N            = Bms36_N->Values();
+double *values_Bms36_NP1          = Bms36_NP1->Values();
+double *values_Bms37_N            = Bms37_N->Values();
+double *values_Bms37_NP1          = Bms37_NP1->Values();
+double *values_Bms38_N            = Bms38_N->Values();
+double *values_Bms38_NP1          = Bms38_NP1->Values();
+double *values_Bms39_N            = Bms39_N->Values();
+double *values_Bms39_NP1          = Bms39_NP1->Values();
+double *values_Bms40_N           = Bms40_N->Values();
+double *values_Bms40_NP1         = Bms40_NP1->Values();
+
+double *values_Bms41_N            = Bms41_N->Values();
+double *values_Bms41_NP1          = Bms41_NP1->Values();
+double *values_Bms42_N            = Bms42_N->Values();
+double *values_Bms42_NP1          = Bms42_NP1->Values();
+double *values_Bms43_N            = Bms43_N->Values();
+double *values_Bms43_NP1          = Bms43_NP1->Values();
+double *values_Bms44_N            = Bms44_N->Values();
+double *values_Bms44_NP1          = Bms44_NP1->Values();
+double *values_Bms45_N            = Bms45_N->Values();
+double *values_Bms45_NP1          = Bms45_NP1->Values();
+double *values_Bms46_N            = Bms46_N->Values();
+double *values_Bms46_NP1          = Bms46_NP1->Values();
+double *values_Bms47_N            = Bms47_N->Values();
+double *values_Bms47_NP1          = Bms47_NP1->Values();
+double *values_Bms48_N            = Bms48_N->Values();
+double *values_Bms48_NP1          = Bms48_NP1->Values();
+double *values_Bms49_N            = Bms49_N->Values();
+double *values_Bms49_NP1          = Bms49_NP1->Values();
+double *values_Bms50_N           = Bms50_N->Values();
+double *values_Bms50_NP1         = Bms50_NP1->Values();
+
+double *values_Bms51_N            = Bms51_N->Values();
+double *values_Bms51_NP1          = Bms51_NP1->Values();
+double *values_Bms52_N            = Bms52_N->Values();
+double *values_Bms52_NP1          = Bms52_NP1->Values();
+double *values_Bms53_N            = Bms53_N->Values();
+double *values_Bms53_NP1          = Bms53_NP1->Values();
+double *values_Bms54_N            = Bms54_N->Values();
+double *values_Bms54_NP1          = Bms54_NP1->Values();
+double *values_Bms55_N            = Bms55_N->Values();
+double *values_Bms55_NP1          = Bms55_NP1->Values();
+double *values_Bms56_N            = Bms56_N->Values();
+double *values_Bms56_NP1          = Bms56_NP1->Values();
+double *values_Bms57_N            = Bms57_N->Values();
+double *values_Bms57_NP1          = Bms57_NP1->Values();
+double *values_Bms58_N            = Bms58_N->Values();
+double *values_Bms58_NP1          = Bms58_NP1->Values();
+double *values_Bms59_N            = Bms59_N->Values();
+double *values_Bms59_NP1          = Bms59_NP1->Values();
+double *values_Bms60_N            = Bms60_N->Values();
+double *values_Bms60_NP1          = Bms60_NP1->Values();
+
+double *values_Bms61_N            = Bms61_N->Values();
+double *values_Bms61_NP1          = Bms61_NP1->Values();
+double *values_Bms62_N            = Bms62_N->Values();
+double *values_Bms62_NP1          = Bms62_NP1->Values();
+double *values_Bms63_N            = Bms63_N->Values();
+double *values_Bms63_NP1          = Bms63_NP1->Values();
+double *values_Bms64_N            = Bms64_N->Values();
+double *values_Bms64_NP1          = Bms64_NP1->Values();
+double *values_Bms65_N            = Bms65_N->Values();
+double *values_Bms65_NP1          = Bms65_NP1->Values();
+double *values_Bms66_N            = Bms66_N->Values();
+double *values_Bms66_NP1          = Bms66_NP1->Values();
+double *values_Bms67_N            = Bms67_N->Values();
+double *values_Bms67_NP1          = Bms67_NP1->Values();
+double *values_Bms68_N            = Bms68_N->Values();
+double *values_Bms68_NP1          = Bms68_NP1->Values();
+double *values_Bms69_N            = Bms69_N->Values();
+double *values_Bms69_NP1          = Bms69_NP1->Values();
+double *values_Bms70_N            = Bms70_N->Values();
+double *values_Bms70_NP1          = Bms70_NP1->Values();
+
+double *values_Bms71_N            = Bms71_N->Values();
+double *values_Bms71_NP1          = Bms71_NP1->Values();
+double *values_Bms72_N            = Bms72_N->Values();
+double *values_Bms72_NP1          = Bms72_NP1->Values();
+double *values_Bms73_N            = Bms73_N->Values();
+double *values_Bms73_NP1          = Bms73_NP1->Values();
+double *values_Bms74_N            = Bms74_N->Values();
+double *values_Bms74_NP1          = Bms74_NP1->Values();
+double *values_Bms75_N            = Bms75_N->Values();
+double *values_Bms75_NP1          = Bms75_NP1->Values();
+double *values_Bms76_N            = Bms76_N->Values();
+double *values_Bms76_NP1          = Bms76_NP1->Values();
+double *values_Bms77_N            = Bms77_N->Values();
+double *values_Bms77_NP1          = Bms77_NP1->Values();
+double *values_Bms78_N            = Bms78_N->Values();
+double *values_Bms78_NP1          = Bms78_NP1->Values();
+double *values_Bms79_N            = Bms79_N->Values();
+double *values_Bms79_NP1          = Bms79_NP1->Values();
+double *values_Bms80_N            = Bms80_N->Values();
+double *values_Bms80_NP1          = Bms80_NP1->Values();
+
+double *values_Bms81_N            = Bms81_N->Values();
+double *values_Bms81_NP1          = Bms81_NP1->Values();
+double *values_Bms82_N            = Bms82_N->Values();
+double *values_Bms82_NP1          = Bms82_NP1->Values();
+double *values_Bms83_N            = Bms83_N->Values();
+double *values_Bms83_NP1          = Bms83_NP1->Values();
+double *values_Bms84_N            = Bms84_N->Values();
+double *values_Bms84_NP1          = Bms84_NP1->Values();
+double *values_Bms85_N            = Bms85_N->Values();
+double *values_Bms85_NP1          = Bms85_NP1->Values();
+double *values_Bms86_N            = Bms86_N->Values();
+double *values_Bms86_NP1          = Bms86_NP1->Values();
+double *values_Bms87_N            = Bms87_N->Values();
+double *values_Bms87_NP1          = Bms87_NP1->Values();
+double *values_Bms88_N            = Bms88_N->Values();
+double *values_Bms88_NP1          = Bms88_NP1->Values();
+double *values_Bms89_N            = Bms89_N->Values();
+double *values_Bms89_NP1          = Bms89_NP1->Values();
+double *values_Bms90_N            = Bms90_N->Values();
+double *values_Bms90_NP1          = Bms90_NP1->Values();
+
+double *values_Bms91_N            = Bms91_N->Values();
+double *values_Bms91_NP1          = Bms91_NP1->Values();
+double *values_Bms92_N            = Bms92_N->Values();
+double *values_Bms92_NP1          = Bms92_NP1->Values();
+double *values_Bms93_N            = Bms93_N->Values();
+double *values_Bms93_NP1          = Bms93_NP1->Values();
+double *values_Bms94_N            = Bms94_N->Values();
+double *values_Bms94_NP1          = Bms94_NP1->Values();
+double *values_Bms95_N            = Bms95_N->Values();
+double *values_Bms95_NP1          = Bms95_NP1->Values();
+double *values_Bms96_N            = Bms96_N->Values();
+double *values_Bms96_NP1          = Bms96_NP1->Values();
+double *values_Bms97_N            = Bms97_N->Values();
+double *values_Bms97_NP1          = Bms97_NP1->Values();
+double *values_Bms98_N            = Bms98_N->Values();
+double *values_Bms98_NP1          = Bms98_NP1->Values();
+double *values_Bms99_N            = Bms99_N->Values();
+double *values_Bms99_NP1          = Bms99_NP1->Values();
+double *values_Bms100_N            = Bms100_N->Values();
+double *values_Bms100_NP1          = Bms100_NP1->Values();
+
+
+double *values_Bms101_N            = Bms101_N->Values();
+double *values_Bms101_NP1          = Bms101_NP1->Values();
+double *values_Bms102_N            = Bms102_N->Values();
+double *values_Bms102_NP1          = Bms102_NP1->Values();
+double *values_Bms103_N            = Bms103_N->Values();
+double *values_Bms103_NP1          = Bms103_NP1->Values();
+double *values_Bms104_N            = Bms104_N->Values();
+double *values_Bms104_NP1          = Bms104_NP1->Values();
+double *values_Bms105_N            = Bms105_N->Values();
+double *values_Bms105_NP1          = Bms105_NP1->Values();
+double *values_Bms106_N            = Bms106_N->Values();
+double *values_Bms106_NP1          = Bms106_NP1->Values();
+double *values_Bms107_N            = Bms107_N->Values();
+double *values_Bms107_NP1          = Bms107_NP1->Values();
+double *values_Bms108_N            = Bms108_N->Values();
+double *values_Bms108_NP1          = Bms108_NP1->Values();
+double *values_Bms109_N            = Bms109_N->Values();
+double *values_Bms109_NP1          = Bms109_NP1->Values();
+double *values_Bms110_N           = Bms110_N->Values();
+double *values_Bms110_NP1         = Bms110_NP1->Values();
+
+double *values_Bms111_N            = Bms111_N->Values();
+double *values_Bms111_NP1          = Bms111_NP1->Values();
+double *values_Bms112_N            = Bms112_N->Values();
+double *values_Bms112_NP1          = Bms112_NP1->Values();
+double *values_Bms113_N            = Bms113_N->Values();
+double *values_Bms113_NP1          = Bms113_NP1->Values();
+double *values_Bms114_N            = Bms114_N->Values();
+double *values_Bms114_NP1          = Bms114_NP1->Values();
+double *values_Bms115_N            = Bms115_N->Values();
+double *values_Bms115_NP1          = Bms115_NP1->Values();
+double *values_Bms116_N            = Bms116_N->Values();
+double *values_Bms116_NP1          = Bms116_NP1->Values();
+double *values_Bms117_N            = Bms117_N->Values();
+double *values_Bms117_NP1          = Bms117_NP1->Values();
+double *values_Bms118_N            = Bms118_N->Values();
+double *values_Bms118_NP1          = Bms118_NP1->Values();
+double *values_Bms119_N            = Bms119_N->Values();
+double *values_Bms119_NP1          = Bms119_NP1->Values();
+double *values_Bms120_N           = Bms120_N->Values();
+double *values_Bms120_NP1         = Bms120_NP1->Values();
+
+double *values_Bms121_N            = Bms121_N->Values();
+double *values_Bms121_NP1          = Bms121_NP1->Values();
+double *values_Bms122_N            = Bms122_N->Values();
+double *values_Bms122_NP1          = Bms122_NP1->Values();
+double *values_Bms123_N            = Bms123_N->Values();
+double *values_Bms123_NP1          = Bms123_NP1->Values();
+double *values_Bms124_N            = Bms124_N->Values();
+double *values_Bms124_NP1          = Bms124_NP1->Values();
+double *values_Bms125_N            = Bms125_N->Values();
+double *values_Bms125_NP1          = Bms125_NP1->Values();
+double *values_Bms126_N            = Bms126_N->Values();
+double *values_Bms126_NP1          = Bms126_NP1->Values();
+double *values_Bms127_N            = Bms127_N->Values();
+double *values_Bms127_NP1          = Bms127_NP1->Values();
+double *values_Bms128_N            = Bms128_N->Values();
+double *values_Bms128_NP1          = Bms128_NP1->Values();
+double *values_Bms129_N            = Bms129_N->Values();
+double *values_Bms129_NP1          = Bms129_NP1->Values();
+double *values_Bms130_N           = Bms130_N->Values();
+double *values_Bms130_NP1         = Bms130_NP1->Values();
+
+double *values_Bms131_N            = Bms131_N->Values();
+double *values_Bms131_NP1          = Bms131_NP1->Values();
+double *values_Bms132_N            = Bms132_N->Values();
+double *values_Bms132_NP1          = Bms132_NP1->Values();
+double *values_Bms133_N            = Bms133_N->Values();
+double *values_Bms133_NP1          = Bms133_NP1->Values();
+double *values_Bms134_N            = Bms134_N->Values();
+double *values_Bms134_NP1          = Bms134_NP1->Values();
+double *values_Bms135_N            = Bms135_N->Values();
+double *values_Bms135_NP1          = Bms135_NP1->Values();
+double *values_Bms136_N            = Bms136_N->Values();
+double *values_Bms136_NP1          = Bms136_NP1->Values();
+double *values_Bms137_N            = Bms137_N->Values();
+double *values_Bms137_NP1          = Bms137_NP1->Values();
+double *values_Bms138_N            = Bms138_N->Values();
+double *values_Bms138_NP1          = Bms138_NP1->Values();
+double *values_Bms139_N            = Bms139_N->Values();
+double *values_Bms139_NP1          = Bms139_NP1->Values();
+double *values_Bms140_N           = Bms140_N->Values();
+double *values_Bms140_NP1         = Bms140_NP1->Values();
+
+double *values_Bms141_N            = Bms141_N->Values();
+double *values_Bms141_NP1          = Bms141_NP1->Values();
+double *values_Bms142_N            = Bms142_N->Values();
+double *values_Bms142_NP1          = Bms142_NP1->Values();
+double *values_Bms143_N            = Bms143_N->Values();
+double *values_Bms143_NP1          = Bms143_NP1->Values();
+double *values_Bms144_N            = Bms144_N->Values();
+double *values_Bms144_NP1          = Bms144_NP1->Values();
+double *values_Bms145_N            = Bms145_N->Values();
+double *values_Bms145_NP1          = Bms145_NP1->Values();
+double *values_Bms146_N            = Bms146_N->Values();
+double *values_Bms146_NP1          = Bms146_NP1->Values();
+double *values_Bms147_N            = Bms147_N->Values();
+double *values_Bms147_NP1          = Bms147_NP1->Values();
+double *values_Bms148_N            = Bms148_N->Values();
+double *values_Bms148_NP1          = Bms148_NP1->Values();
+double *values_Bms149_N            = Bms149_N->Values();
+double *values_Bms149_NP1          = Bms149_NP1->Values();
+double *values_Bms150_N           = Bms150_N->Values();
+double *values_Bms150_NP1         = Bms150_NP1->Values();
+
+double *values_Bms151_N            = Bms151_N->Values();
+double *values_Bms151_NP1          = Bms151_NP1->Values();
+double *values_Bms152_N            = Bms152_N->Values();
+double *values_Bms152_NP1          = Bms152_NP1->Values();
+double *values_Bms153_N            = Bms153_N->Values();
+double *values_Bms153_NP1          = Bms153_NP1->Values();
+double *values_Bms154_N            = Bms154_N->Values();
+double *values_Bms154_NP1          = Bms154_NP1->Values();
+double *values_Bms155_N            = Bms155_N->Values();
+double *values_Bms155_NP1          = Bms155_NP1->Values();
+double *values_Bms156_N            = Bms156_N->Values();
+double *values_Bms156_NP1          = Bms156_NP1->Values();
+double *values_Bms157_N            = Bms157_N->Values();
+double *values_Bms157_NP1          = Bms157_NP1->Values();
+double *values_Bms158_N            = Bms158_N->Values();
+double *values_Bms158_NP1          = Bms158_NP1->Values();
+double *values_Bms159_N            = Bms159_N->Values();
+double *values_Bms159_NP1          = Bms159_NP1->Values();
+double *values_Bms160_N            = Bms160_N->Values();
+double *values_Bms160_NP1          = Bms160_NP1->Values();
+
+double *values_Bms161_N            = Bms161_N->Values();
+double *values_Bms161_NP1          = Bms161_NP1->Values();
+double *values_Bms162_N            = Bms162_N->Values();
+double *values_Bms162_NP1          = Bms162_NP1->Values();
+double *values_Bms163_N            = Bms163_N->Values();
+double *values_Bms163_NP1          = Bms163_NP1->Values();
+double *values_Bms164_N            = Bms164_N->Values();
+double *values_Bms164_NP1          = Bms164_NP1->Values();
+double *values_Bms165_N            = Bms165_N->Values();
+double *values_Bms165_NP1          = Bms165_NP1->Values();
+double *values_Bms166_N            = Bms166_N->Values();
+double *values_Bms166_NP1          = Bms166_NP1->Values();
+double *values_Bms167_N            = Bms167_N->Values();
+double *values_Bms167_NP1          = Bms167_NP1->Values();
+double *values_Bms168_N            = Bms168_N->Values();
+double *values_Bms168_NP1          = Bms168_NP1->Values();
+double *values_Bms169_N            = Bms169_N->Values();
+double *values_Bms169_NP1          = Bms169_NP1->Values();
+double *values_Bms170_N            = Bms170_N->Values();
+double *values_Bms170_NP1          = Bms170_NP1->Values();
+
+double *values_Bms171_N            = Bms171_N->Values();
+double *values_Bms171_NP1          = Bms171_NP1->Values();
+double *values_Bms172_N            = Bms172_N->Values();
+double *values_Bms172_NP1          = Bms172_NP1->Values();
+double *values_Bms173_N            = Bms173_N->Values();
+double *values_Bms173_NP1          = Bms173_NP1->Values();
+double *values_Bms174_N            = Bms174_N->Values();
+double *values_Bms174_NP1          = Bms174_NP1->Values();
+double *values_Bms175_N            = Bms175_N->Values();
+double *values_Bms175_NP1          = Bms175_NP1->Values();
+double *values_Bms176_N            = Bms176_N->Values();
+double *values_Bms176_NP1          = Bms176_NP1->Values();
+double *values_Bms177_N            = Bms177_N->Values();
+double *values_Bms177_NP1          = Bms177_NP1->Values();
+double *values_Bms178_N            = Bms178_N->Values();
+double *values_Bms178_NP1          = Bms178_NP1->Values();
+double *values_Bms179_N            = Bms179_N->Values();
+double *values_Bms179_NP1          = Bms179_NP1->Values();
+double *values_Bms180_N            = Bms180_N->Values();
+double *values_Bms180_NP1          = Bms180_NP1->Values();
+
+double *values_Bms181_N            = Bms181_N->Values();
+double *values_Bms181_NP1          = Bms181_NP1->Values();
+double *values_Bms182_N            = Bms182_N->Values();
+double *values_Bms182_NP1          = Bms182_NP1->Values();
+double *values_Bms183_N            = Bms183_N->Values();
+double *values_Bms183_NP1          = Bms183_NP1->Values();
+double *values_Bms184_N            = Bms184_N->Values();
+double *values_Bms184_NP1          = Bms184_NP1->Values();
+double *values_Bms185_N            = Bms185_N->Values();
+double *values_Bms185_NP1          = Bms185_NP1->Values();
+double *values_Bms186_N            = Bms186_N->Values();
+double *values_Bms186_NP1          = Bms186_NP1->Values();
+double *values_Bms187_N            = Bms187_N->Values();
+double *values_Bms187_NP1          = Bms187_NP1->Values();
+double *values_Bms188_N            = Bms188_N->Values();
+double *values_Bms188_NP1          = Bms188_NP1->Values();
+double *values_Bms189_N            = Bms189_N->Values();
+double *values_Bms189_NP1          = Bms189_NP1->Values();
+
+/////// Bond Level Microdamage //////////////////
+double *values_Bmd1_N            = Bmd1_N->Values();
+double *values_Bmd1_NP1          = Bmd1_NP1->Values();
+double *values_Bmd2_N            = Bmd2_N->Values();
+double *values_Bmd2_NP1          = Bmd2_NP1->Values();
+double *values_Bmd3_N            = Bmd3_N->Values();
+double *values_Bmd3_NP1          = Bmd3_NP1->Values();
+double *values_Bmd4_N            = Bmd4_N->Values();
+double *values_Bmd4_NP1          = Bmd4_NP1->Values();
+double *values_Bmd5_N            = Bmd5_N->Values();
+double *values_Bmd5_NP1          = Bmd5_NP1->Values();
+double *values_Bmd6_N            = Bmd6_N->Values();
+double *values_Bmd6_NP1          = Bmd6_NP1->Values();
+double *values_Bmd7_N            = Bmd7_N->Values();
+double *values_Bmd7_NP1          = Bmd7_NP1->Values();
+double *values_Bmd8_N            = Bmd8_N->Values();
+double *values_Bmd8_NP1          = Bmd8_NP1->Values();
+double *values_Bmd9_N            = Bmd9_N->Values();
+double *values_Bmd9_NP1          = Bmd9_NP1->Values();
+double *values_Bmd10_N           = Bmd10_N->Values();
+double *values_Bmd10_NP1         = Bmd10_NP1->Values();
+
+double *values_Bmd11_N            = Bmd11_N->Values();
+double *values_Bmd11_NP1          = Bmd11_NP1->Values();
+double *values_Bmd12_N            = Bmd12_N->Values();
+double *values_Bmd12_NP1          = Bmd12_NP1->Values();
+double *values_Bmd13_N            = Bmd13_N->Values();
+double *values_Bmd13_NP1          = Bmd13_NP1->Values();
+double *values_Bmd14_N            = Bmd14_N->Values();
+double *values_Bmd14_NP1          = Bmd14_NP1->Values();
+double *values_Bmd15_N            = Bmd15_N->Values();
+double *values_Bmd15_NP1          = Bmd15_NP1->Values();
+double *values_Bmd16_N            = Bmd16_N->Values();
+double *values_Bmd16_NP1          = Bmd16_NP1->Values();
+double *values_Bmd17_N            = Bmd17_N->Values();
+double *values_Bmd17_NP1          = Bmd17_NP1->Values();
+double *values_Bmd18_N            = Bmd18_N->Values();
+double *values_Bmd18_NP1          = Bmd18_NP1->Values();
+double *values_Bmd19_N            = Bmd19_N->Values();
+double *values_Bmd19_NP1          = Bmd19_NP1->Values();
+double *values_Bmd20_N            = Bmd20_N->Values();
+double *values_Bmd20_NP1          = Bmd20_NP1->Values();
+
+double *values_Bmd21_N            = Bmd21_N->Values();
+double *values_Bmd21_NP1          = Bmd21_NP1->Values();
+double *values_Bmd22_N            = Bmd22_N->Values();
+double *values_Bmd22_NP1          = Bmd22_NP1->Values();
+double *values_Bmd23_N            = Bmd23_N->Values();
+double *values_Bmd23_NP1          = Bmd23_NP1->Values();
+double *values_Bmd24_N            = Bmd24_N->Values();
+double *values_Bmd24_NP1          = Bmd24_NP1->Values();
+double *values_Bmd25_N            = Bmd25_N->Values();
+double *values_Bmd25_NP1          = Bmd25_NP1->Values();
+double *values_Bmd26_N            = Bmd26_N->Values();
+double *values_Bmd26_NP1          = Bmd26_NP1->Values();
+double *values_Bmd27_N            = Bmd27_N->Values();
+double *values_Bmd27_NP1          = Bmd27_NP1->Values();
+double *values_Bmd28_N            = Bmd28_N->Values();
+double *values_Bmd28_NP1          = Bmd28_NP1->Values();
+double *values_Bmd29_N            = Bmd29_N->Values();
+double *values_Bmd29_NP1          = Bmd29_NP1->Values();
+double *values_Bmd30_N           = Bmd30_N->Values();
+double *values_Bmd30_NP1         = Bmd30_NP1->Values();
+
+double *values_Bmd31_N            = Bmd31_N->Values();
+double *values_Bmd31_NP1          = Bmd31_NP1->Values();
+double *values_Bmd32_N            = Bmd32_N->Values();
+double *values_Bmd32_NP1          = Bmd32_NP1->Values();
+double *values_Bmd33_N            = Bmd33_N->Values();
+double *values_Bmd33_NP1          = Bmd33_NP1->Values();
+double *values_Bmd34_N            = Bmd34_N->Values();
+double *values_Bmd34_NP1          = Bmd34_NP1->Values();
+double *values_Bmd35_N            = Bmd35_N->Values();
+double *values_Bmd35_NP1          = Bmd35_NP1->Values();
+double *values_Bmd36_N            = Bmd36_N->Values();
+double *values_Bmd36_NP1          = Bmd36_NP1->Values();
+double *values_Bmd37_N            = Bmd37_N->Values();
+double *values_Bmd37_NP1          = Bmd37_NP1->Values();
+
+double *values_weightedDamage       = weightedDamage->Values();
+double *values_internalEnergy_N     = internalEnergy_N->Values();
+double *values_internalEnergy_NP1   = internalEnergy_NP1->Values();
+double *values_inelasticEnergy_N    = inelasticEnergy_N->Values();
+double *values_inelasticEnergy_NP1  = inelasticEnergy_NP1->Values();
+double *values_BinternalEnergy_N    = BinternalEnergy_N->Values();
+double *values_BinternalEnergy_NP1  = BinternalEnergy_NP1->Values();
+double *values_BinelasticEnergy_N   = BinelasticEnergy_N->Values();
+double *values_BinelasticEnergy_NP1 = BinelasticEnergy_NP1->Values();
+double *values_BweightedDamage      = BweightedDamage->Values();
+
+for(int i=0 ; i < num_PD_nodes_onRank ; i++){
+
+MS.write( (char*)&values_ms1_N[i], sizeof(double) );//           = ms1_N->Values();
+MS.write( (char*)&values_ms1_NP1[i], sizeof(double) );//         = ms1_NP1->Values();
+MS.write( (char*)&values_ms2_N[i], sizeof(double) );//           = ms2_N->Values();
+MS.write( (char*)&values_ms2_NP1[i], sizeof(double) );//         = ms2_NP1->Values();
+MS.write( (char*)&values_ms3_N[i], sizeof(double) );//           = ms3_N->Values();
+MS.write( (char*)&values_ms3_NP1[i], sizeof(double) );//         = ms3_NP1->Values();
+MS.write( (char*)&values_ms4_N[i], sizeof(double) );//           = ms4_N->Values();
+MS.write( (char*)&values_ms4_NP1[i], sizeof(double) );//         = ms4_NP1->Values();
+MS.write( (char*)&values_ms5_N[i], sizeof(double) );//           = ms5_N->Values();
+MS.write( (char*)&values_ms5_NP1[i], sizeof(double) );//         = ms5_NP1->Values();
+MS.write( (char*)&values_ms6_N[i], sizeof(double) );//           = ms6_N->Values();
+MS.write( (char*)&values_ms6_NP1[i], sizeof(double) );//         = ms6_NP1->Values();
+MS.write( (char*)&values_ms7_N[i], sizeof(double) );//           = ms7_N->Values();
+MS.write( (char*)&values_ms7_NP1[i], sizeof(double) );//         = ms7_NP1->Values();
+MS.write( (char*)&values_ms8_N[i], sizeof(double) );//           = ms8_N->Values();
+MS.write( (char*)&values_ms8_NP1[i], sizeof(double) );//         = ms8_NP1->Values();
+MS.write( (char*)&values_ms9_N[i], sizeof(double) );//           = ms9_N->Values();
+MS.write( (char*)&values_ms9_NP1[i], sizeof(double) );//         = ms9_NP1->Values();
+MS.write( (char*)&values_ms10_N[i], sizeof(double) );//          = ms10_N->Values();
+MS.write( (char*)&values_ms10_NP1[i], sizeof(double) );//        = ms10_NP1->Values();
+
+MS.write( (char*)&values_ms11_N[i], sizeof(double) );//           = ms11_N->Values();
+MS.write( (char*)&values_ms11_NP1[i], sizeof(double) );//         = ms11_NP1->Values();
+MS.write( (char*)&values_ms12_N[i], sizeof(double) );//           = ms12_N->Values();
+MS.write( (char*)&values_ms12_NP1[i], sizeof(double) );//         = ms12_NP1->Values();
+MS.write( (char*)&values_ms13_N[i], sizeof(double) );//           = ms13_N->Values();
+MS.write( (char*)&values_ms13_NP1[i], sizeof(double) );//         = ms13_NP1->Values();
+MS.write( (char*)&values_ms14_N[i], sizeof(double) );//           = ms14_N->Values();
+MS.write( (char*)&values_ms14_NP1[i], sizeof(double) );//         = ms14_NP1->Values();
+MS.write( (char*)&values_ms15_N[i], sizeof(double) );//           = ms15_N->Values();
+MS.write( (char*)&values_ms15_NP1[i], sizeof(double) );//         = ms15_NP1->Values();
+MS.write( (char*)&values_ms16_N[i], sizeof(double) );//           = ms16_N->Values();
+MS.write( (char*)&values_ms16_NP1[i], sizeof(double) );//         = ms16_NP1->Values();
+MS.write( (char*)&values_ms17_N[i], sizeof(double) );//           = ms17_N->Values();
+MS.write( (char*)&values_ms17_NP1[i], sizeof(double) );//         = ms17_NP1->Values();
+MS.write( (char*)&values_ms18_N[i], sizeof(double) );//           = ms18_N->Values();
+MS.write( (char*)&values_ms18_NP1[i], sizeof(double) );//         = ms18_NP1->Values();
+MS.write( (char*)&values_ms19_N[i], sizeof(double) );//           = ms19_N->Values();
+MS.write( (char*)&values_ms19_NP1[i], sizeof(double) );//         = ms19_NP1->Values();
+MS.write( (char*)&values_ms20_N[i], sizeof(double) );//          = ms20_N->Values();
+MS.write( (char*)&values_ms20_NP1[i], sizeof(double) );//        = ms20_NP1->Values();
+
+MS.write( (char*)&values_ms21_N[i], sizeof(double) );//           = ms21_N->Values();
+MS.write( (char*)&values_ms21_NP1[i], sizeof(double) );//         = ms21_NP1->Values();
+MS.write( (char*)&values_ms22_N[i], sizeof(double) );//           = ms22_N->Values();
+MS.write( (char*)&values_ms22_NP1[i], sizeof(double) );//         = ms22_NP1->Values();
+MS.write( (char*)&values_ms23_N[i], sizeof(double) );//           = ms23_N->Values();
+MS.write( (char*)&values_ms23_NP1[i], sizeof(double) );//         = ms23_NP1->Values();
+MS.write( (char*)&values_ms24_N[i], sizeof(double) );//           = ms24_N->Values();
+MS.write( (char*)&values_ms24_NP1[i], sizeof(double) );//         = ms24_NP1->Values();
+MS.write( (char*)&values_ms25_N[i], sizeof(double) );//           = ms25_N->Values();
+MS.write( (char*)&values_ms25_NP1[i], sizeof(double) );//         = ms25_NP1->Values();
+MS.write( (char*)&values_ms26_N[i], sizeof(double) );//           = ms26_N->Values();
+MS.write( (char*)&values_ms26_NP1[i], sizeof(double) );//         = ms26_NP1->Values();
+MS.write( (char*)&values_ms27_N[i], sizeof(double) );//           = ms27_N->Values();
+MS.write( (char*)&values_ms27_NP1[i], sizeof(double) );//         = ms27_NP1->Values();
+MS.write( (char*)&values_ms28_N[i], sizeof(double) );//           = ms28_N->Values();
+MS.write( (char*)&values_ms28_NP1[i], sizeof(double) );//         = ms28_NP1->Values();
+MS.write( (char*)&values_ms29_N[i], sizeof(double) );//           = ms29_N->Values();
+MS.write( (char*)&values_ms29_NP1[i], sizeof(double) );//         = ms29_NP1->Values();
+MS.write( (char*)&values_ms30_N[i], sizeof(double) );//          = ms30_N->Values();
+MS.write( (char*)&values_ms30_NP1[i], sizeof(double) );//        = ms30_NP1->Values();
+
+MS.write( (char*)&values_ms31_N[i], sizeof(double) );//           = ms31_N->Values();
+MS.write( (char*)&values_ms31_NP1[i], sizeof(double) );//         = ms31_NP1->Values();
+MS.write( (char*)&values_ms32_N[i], sizeof(double) );//           = ms32_N->Values();
+MS.write( (char*)&values_ms32_NP1[i], sizeof(double) );//         = ms32_NP1->Values();
+MS.write( (char*)&values_ms33_N[i], sizeof(double) );//           = ms33_N->Values();
+MS.write( (char*)&values_ms33_NP1[i], sizeof(double) );//         = ms33_NP1->Values();
+MS.write( (char*)&values_ms34_N[i], sizeof(double) );//           = ms34_N->Values();
+MS.write( (char*)&values_ms34_NP1[i], sizeof(double) );//         = ms34_NP1->Values();
+MS.write( (char*)&values_ms35_N[i], sizeof(double) );//           = ms35_N->Values();
+MS.write( (char*)&values_ms35_NP1[i], sizeof(double) );//         = ms35_NP1->Values();
+MS.write( (char*)&values_ms36_N[i], sizeof(double) );//           = ms36_N->Values();
+MS.write( (char*)&values_ms36_NP1[i], sizeof(double) );//         = ms36_NP1->Values();
+MS.write( (char*)&values_ms37_N[i], sizeof(double) );//           = ms37_N->Values();
+MS.write( (char*)&values_ms37_NP1[i], sizeof(double) );//         = ms37_NP1->Values();
+MS.write( (char*)&values_ms38_N[i], sizeof(double) );//           = ms38_N->Values();
+MS.write( (char*)&values_ms38_NP1[i], sizeof(double) );//         = ms38_NP1->Values();
+MS.write( (char*)&values_ms39_N[i], sizeof(double) );//           = ms39_N->Values();
+MS.write( (char*)&values_ms39_NP1[i], sizeof(double) );//         = ms39_NP1->Values();
+MS.write( (char*)&values_ms40_N[i], sizeof(double) );//          = ms40_N->Values();
+MS.write( (char*)&values_ms40_NP1[i], sizeof(double) );//        = ms40_NP1->Values();
+
+MS.write( (char*)&values_ms41_N[i], sizeof(double) );//           = ms41_N->Values();
+MS.write( (char*)&values_ms41_NP1[i], sizeof(double) );//         = ms41_NP1->Values();
+MS.write( (char*)&values_ms42_N[i], sizeof(double) );//           = ms42_N->Values();
+MS.write( (char*)&values_ms42_NP1[i], sizeof(double) );//         = ms42_NP1->Values();
+MS.write( (char*)&values_ms43_N[i], sizeof(double) );//           = ms43_N->Values();
+MS.write( (char*)&values_ms43_NP1[i], sizeof(double) );//         = ms43_NP1->Values();
+MS.write( (char*)&values_ms44_N[i], sizeof(double) );//           = ms44_N->Values();
+MS.write( (char*)&values_ms44_NP1[i], sizeof(double) );//         = ms44_NP1->Values();
+MS.write( (char*)&values_ms45_N[i], sizeof(double) );//           = ms45_N->Values();
+MS.write( (char*)&values_ms45_NP1[i], sizeof(double) );//         = ms45_NP1->Values();
+MS.write( (char*)&values_ms46_N[i], sizeof(double) );//           = ms46_N->Values();
+MS.write( (char*)&values_ms46_NP1[i], sizeof(double) );//         = ms46_NP1->Values();
+MS.write( (char*)&values_ms47_N[i], sizeof(double) );//           = ms47_N->Values();
+MS.write( (char*)&values_ms47_NP1[i], sizeof(double) );//         = ms47_NP1->Values();
+MS.write( (char*)&values_ms48_N[i], sizeof(double) );//           = ms48_N->Values();
+MS.write( (char*)&values_ms48_NP1[i], sizeof(double) );//         = ms48_NP1->Values();
+MS.write( (char*)&values_ms49_N[i], sizeof(double) );//           = ms49_N->Values();
+MS.write( (char*)&values_ms49_NP1[i], sizeof(double) );//         = ms49_NP1->Values();
+MS.write( (char*)&values_ms50_N[i], sizeof(double) );//          = ms50_N->Values();
+MS.write( (char*)&values_ms50_NP1[i], sizeof(double) );//        = ms50_NP1->Values();
+
+MS.write( (char*)&values_ms51_N[i], sizeof(double) );//           = ms51_N->Values();
+MS.write( (char*)&values_ms51_NP1[i], sizeof(double) );//         = ms51_NP1->Values();
+MS.write( (char*)&values_ms52_N[i], sizeof(double) );//           = ms52_N->Values();
+MS.write( (char*)&values_ms52_NP1[i], sizeof(double) );//         = ms52_NP1->Values();
+MS.write( (char*)&values_ms53_N[i], sizeof(double) );//           = ms53_N->Values();
+MS.write( (char*)&values_ms53_NP1[i], sizeof(double) );//         = ms53_NP1->Values();
+MS.write( (char*)&values_ms54_N[i], sizeof(double) );//           = ms54_N->Values();
+MS.write( (char*)&values_ms54_NP1[i], sizeof(double) );//         = ms54_NP1->Values();
+MS.write( (char*)&values_ms55_N[i], sizeof(double) );//           = ms55_N->Values();
+MS.write( (char*)&values_ms55_NP1[i], sizeof(double) );//         = ms55_NP1->Values();
+MS.write( (char*)&values_ms56_N[i], sizeof(double) );//           = ms56_N->Values();
+MS.write( (char*)&values_ms56_NP1[i], sizeof(double) );//         = ms56_NP1->Values();
+MS.write( (char*)&values_ms57_N[i], sizeof(double) );//           = ms57_N->Values();
+MS.write( (char*)&values_ms57_NP1[i], sizeof(double) );//         = ms57_NP1->Values();
+MS.write( (char*)&values_ms58_N[i], sizeof(double) );//           = ms58_N->Values();
+MS.write( (char*)&values_ms58_NP1[i], sizeof(double) );//         = ms58_NP1->Values();
+MS.write( (char*)&values_ms59_N[i], sizeof(double) );//           = ms59_N->Values();
+MS.write( (char*)&values_ms59_NP1[i], sizeof(double) );//         = ms59_NP1->Values();
+MS.write( (char*)&values_ms60_N[i], sizeof(double) );//           = ms60_N->Values();
+MS.write( (char*)&values_ms60_NP1[i], sizeof(double) );//         = ms60_NP1->Values();
+
+MS.write( (char*)&values_ms61_N[i], sizeof(double) );//           = ms61_N->Values();
+MS.write( (char*)&values_ms61_NP1[i], sizeof(double) );//         = ms61_NP1->Values();
+MS.write( (char*)&values_ms62_N[i], sizeof(double) );//           = ms62_N->Values();
+MS.write( (char*)&values_ms62_NP1[i], sizeof(double) );//         = ms62_NP1->Values();
+MS.write( (char*)&values_ms63_N[i], sizeof(double) );//           = ms63_N->Values();
+MS.write( (char*)&values_ms63_NP1[i], sizeof(double) );//         = ms63_NP1->Values();
+MS.write( (char*)&values_ms64_N[i], sizeof(double) );//           = ms64_N->Values();
+MS.write( (char*)&values_ms64_NP1[i], sizeof(double) );//         = ms64_NP1->Values();
+MS.write( (char*)&values_ms65_N[i], sizeof(double) );//           = ms65_N->Values();
+MS.write( (char*)&values_ms65_NP1[i], sizeof(double) );//         = ms65_NP1->Values();
+MS.write( (char*)&values_ms66_N[i], sizeof(double) );//           = ms66_N->Values();
+MS.write( (char*)&values_ms66_NP1[i], sizeof(double) );//         = ms66_NP1->Values();
+MS.write( (char*)&values_ms67_N[i], sizeof(double) );//           = ms67_N->Values();
+MS.write( (char*)&values_ms67_NP1[i], sizeof(double) );//         = ms67_NP1->Values();
+MS.write( (char*)&values_ms68_N[i], sizeof(double) );//           = ms68_N->Values();
+MS.write( (char*)&values_ms68_NP1[i], sizeof(double) );//         = ms68_NP1->Values();
+MS.write( (char*)&values_ms69_N[i], sizeof(double) );//           = ms69_N->Values();
+MS.write( (char*)&values_ms69_NP1[i], sizeof(double) );//         = ms69_NP1->Values();
+MS.write( (char*)&values_ms70_N[i], sizeof(double) );//           = ms70_N->Values();
+MS.write( (char*)&values_ms70_NP1[i], sizeof(double) );//         = ms70_NP1->Values();
+
+MS.write( (char*)&values_ms71_N[i], sizeof(double) );//           = ms71_N->Values();
+MS.write( (char*)&values_ms71_NP1[i], sizeof(double) );//         = ms71_NP1->Values();
+MS.write( (char*)&values_ms72_N[i], sizeof(double) );//           = ms72_N->Values();
+MS.write( (char*)&values_ms72_NP1[i], sizeof(double) );//         = ms72_NP1->Values();
+MS.write( (char*)&values_ms73_N[i], sizeof(double) );//           = ms73_N->Values();
+MS.write( (char*)&values_ms73_NP1[i], sizeof(double) );//         = ms73_NP1->Values();
+MS.write( (char*)&values_ms74_N[i], sizeof(double) );//           = ms74_N->Values();
+MS.write( (char*)&values_ms74_NP1[i], sizeof(double) );//         = ms74_NP1->Values();
+MS.write( (char*)&values_ms75_N[i], sizeof(double) );//           = ms75_N->Values();
+MS.write( (char*)&values_ms75_NP1[i], sizeof(double) );//         = ms75_NP1->Values();
+MS.write( (char*)&values_ms76_N[i], sizeof(double) );//           = ms76_N->Values();
+MS.write( (char*)&values_ms76_NP1[i], sizeof(double) );//         = ms76_NP1->Values();
+MS.write( (char*)&values_ms77_N[i], sizeof(double) );//           = ms77_N->Values();
+MS.write( (char*)&values_ms77_NP1[i], sizeof(double) );//         = ms77_NP1->Values();
+MS.write( (char*)&values_ms78_N[i], sizeof(double) );//           = ms78_N->Values();
+MS.write( (char*)&values_ms78_NP1[i], sizeof(double) );//         = ms78_NP1->Values();
+MS.write( (char*)&values_ms79_N[i], sizeof(double) );//           = ms79_N->Values();
+MS.write( (char*)&values_ms79_NP1[i], sizeof(double) );//         = ms79_NP1->Values();
+MS.write( (char*)&values_ms80_N[i], sizeof(double) );//           = ms80_N->Values();
+MS.write( (char*)&values_ms80_NP1[i], sizeof(double) );//         = ms80_NP1->Values();
+
+MS.write( (char*)&values_ms81_N[i], sizeof(double) );//           = ms81_N->Values();
+MS.write( (char*)&values_ms81_NP1[i], sizeof(double) );//         = ms81_NP1->Values();
+MS.write( (char*)&values_ms82_N[i], sizeof(double) );//           = ms82_N->Values();
+MS.write( (char*)&values_ms82_NP1[i], sizeof(double) );//         = ms82_NP1->Values();
+MS.write( (char*)&values_ms83_N[i], sizeof(double) );//           = ms83_N->Values();
+MS.write( (char*)&values_ms83_NP1[i], sizeof(double) );//         = ms83_NP1->Values();
+MS.write( (char*)&values_ms84_N[i], sizeof(double) );//           = ms84_N->Values();
+MS.write( (char*)&values_ms84_NP1[i], sizeof(double) );//         = ms84_NP1->Values();
+MS.write( (char*)&values_ms85_N[i], sizeof(double) );//           = ms85_N->Values();
+MS.write( (char*)&values_ms85_NP1[i], sizeof(double) );//         = ms85_NP1->Values();
+MS.write( (char*)&values_ms86_N[i], sizeof(double) );//           = ms86_N->Values();
+MS.write( (char*)&values_ms86_NP1[i], sizeof(double) );//         = ms86_NP1->Values();
+MS.write( (char*)&values_ms87_N[i], sizeof(double) );//           = ms87_N->Values();
+MS.write( (char*)&values_ms87_NP1[i], sizeof(double) );//         = ms87_NP1->Values();
+MS.write( (char*)&values_ms88_N[i], sizeof(double) );//           = ms88_N->Values();
+MS.write( (char*)&values_ms88_NP1[i], sizeof(double) );//         = ms88_NP1->Values();
+MS.write( (char*)&values_ms89_N[i], sizeof(double) );//           = ms89_N->Values();
+MS.write( (char*)&values_ms89_NP1[i], sizeof(double) );//         = ms89_NP1->Values();
+MS.write( (char*)&values_ms90_N[i], sizeof(double) );//           = ms90_N->Values();
+MS.write( (char*)&values_ms90_NP1[i], sizeof(double) );//         = ms90_NP1->Values();
+
+MS.write( (char*)&values_ms91_N[i], sizeof(double) );//           = ms91_N->Values();
+MS.write( (char*)&values_ms91_NP1[i], sizeof(double) );//         = ms91_NP1->Values();
+MS.write( (char*)&values_ms92_N[i], sizeof(double) );//           = ms92_N->Values();
+MS.write( (char*)&values_ms92_NP1[i], sizeof(double) );//         = ms92_NP1->Values();
+MS.write( (char*)&values_ms93_N[i], sizeof(double) );//           = ms93_N->Values();
+MS.write( (char*)&values_ms93_NP1[i], sizeof(double) );//         = ms93_NP1->Values();
+MS.write( (char*)&values_ms94_N[i], sizeof(double) );//           = ms94_N->Values();
+MS.write( (char*)&values_ms94_NP1[i], sizeof(double) );//         = ms94_NP1->Values();
+MS.write( (char*)&values_ms95_N[i], sizeof(double) );//           = ms95_N->Values();
+MS.write( (char*)&values_ms95_NP1[i], sizeof(double) );//         = ms95_NP1->Values();
+MS.write( (char*)&values_ms96_N[i], sizeof(double) );//           = ms96_N->Values();
+MS.write( (char*)&values_ms96_NP1[i], sizeof(double) );//         = ms96_NP1->Values();
+MS.write( (char*)&values_ms97_N[i], sizeof(double) );//           = ms97_N->Values();
+MS.write( (char*)&values_ms97_NP1[i], sizeof(double) );//         = ms97_NP1->Values();
+MS.write( (char*)&values_ms98_N[i], sizeof(double) );//           = ms98_N->Values();
+MS.write( (char*)&values_ms98_NP1[i], sizeof(double) );//         = ms98_NP1->Values();
+MS.write( (char*)&values_ms99_N[i], sizeof(double) );//           = ms99_N->Values();
+MS.write( (char*)&values_ms99_NP1[i], sizeof(double) );//         = ms99_NP1->Values();
+MS.write( (char*)&values_ms100_N[i], sizeof(double) );//           = ms100_N->Values();
+MS.write( (char*)&values_ms100_NP1[i], sizeof(double) );//         = ms100_NP1->Values();
+
+
+MS.write( (char*)&values_ms101_N[i], sizeof(double) );//           = ms101_N->Values();
+MS.write( (char*)&values_ms101_NP1[i], sizeof(double) );//         = ms101_NP1->Values();
+MS.write( (char*)&values_ms102_N[i], sizeof(double) );//           = ms102_N->Values();
+MS.write( (char*)&values_ms102_NP1[i], sizeof(double) );//         = ms102_NP1->Values();
+MS.write( (char*)&values_ms103_N[i], sizeof(double) );//           = ms103_N->Values();
+MS.write( (char*)&values_ms103_NP1[i], sizeof(double) );//         = ms103_NP1->Values();
+MS.write( (char*)&values_ms104_N[i], sizeof(double) );//           = ms104_N->Values();
+MS.write( (char*)&values_ms104_NP1[i], sizeof(double) );//         = ms104_NP1->Values();
+MS.write( (char*)&values_ms105_N[i], sizeof(double) );//           = ms105_N->Values();
+MS.write( (char*)&values_ms105_NP1[i], sizeof(double) );//         = ms105_NP1->Values();
+MS.write( (char*)&values_ms106_N[i], sizeof(double) );//           = ms106_N->Values();
+MS.write( (char*)&values_ms106_NP1[i], sizeof(double) );//         = ms106_NP1->Values();
+MS.write( (char*)&values_ms107_N[i], sizeof(double) );//           = ms107_N->Values();
+MS.write( (char*)&values_ms107_NP1[i], sizeof(double) );//         = ms107_NP1->Values();
+MS.write( (char*)&values_ms108_N[i], sizeof(double) );//           = ms108_N->Values();
+MS.write( (char*)&values_ms108_NP1[i], sizeof(double) );//         = ms108_NP1->Values();
+MS.write( (char*)&values_ms109_N[i], sizeof(double) );//           = ms109_N->Values();
+MS.write( (char*)&values_ms109_NP1[i], sizeof(double) );//         = ms109_NP1->Values();
+MS.write( (char*)&values_ms110_N[i], sizeof(double) );//          = ms100_N->Values();
+MS.write( (char*)&values_ms110_NP1[i], sizeof(double) );//        = ms100_NP1->Values();
+
+MS.write( (char*)&values_ms111_N[i], sizeof(double) );//           = ms111_N->Values();
+MS.write( (char*)&values_ms111_NP1[i], sizeof(double) );//         = ms111_NP1->Values();
+MS.write( (char*)&values_ms112_N[i], sizeof(double) );//           = ms112_N->Values();
+MS.write( (char*)&values_ms112_NP1[i], sizeof(double) );//         = ms112_NP1->Values();
+MS.write( (char*)&values_ms113_N[i], sizeof(double) );//           = ms113_N->Values();
+MS.write( (char*)&values_ms113_NP1[i], sizeof(double) );//         = ms113_NP1->Values();
+MS.write( (char*)&values_ms114_N[i], sizeof(double) );//           = ms114_N->Values();
+MS.write( (char*)&values_ms114_NP1[i], sizeof(double) );//         = ms114_NP1->Values();
+MS.write( (char*)&values_ms115_N[i], sizeof(double) );//           = ms115_N->Values();
+MS.write( (char*)&values_ms115_NP1[i], sizeof(double) );//         = ms115_NP1->Values();
+MS.write( (char*)&values_ms116_N[i], sizeof(double) );//           = ms116_N->Values();
+MS.write( (char*)&values_ms116_NP1[i], sizeof(double) );//         = ms116_NP1->Values();
+MS.write( (char*)&values_ms117_N[i], sizeof(double) );//           = ms117_N->Values();
+MS.write( (char*)&values_ms117_NP1[i], sizeof(double) );//         = ms117_NP1->Values();
+MS.write( (char*)&values_ms118_N[i], sizeof(double) );//           = ms118_N->Values();
+MS.write( (char*)&values_ms118_NP1[i], sizeof(double) );//         = ms118_NP1->Values();
+MS.write( (char*)&values_ms119_N[i], sizeof(double) );//           = ms119_N->Values();
+MS.write( (char*)&values_ms119_NP1[i], sizeof(double) );//         = ms119_NP1->Values();
+MS.write( (char*)&values_ms120_N[i], sizeof(double) );//          = ms120_N->Values();
+MS.write( (char*)&values_ms120_NP1[i], sizeof(double) );//        = ms120_NP1->Values();
+
+MS.write( (char*)&values_ms121_N[i], sizeof(double) );//           = ms121_N->Values();
+MS.write( (char*)&values_ms121_NP1[i], sizeof(double) );//         = ms121_NP1->Values();
+MS.write( (char*)&values_ms122_N[i], sizeof(double) );//           = ms122_N->Values();
+MS.write( (char*)&values_ms122_NP1[i], sizeof(double) );//         = ms122_NP1->Values();
+MS.write( (char*)&values_ms123_N[i], sizeof(double) );//           = ms123_N->Values();
+MS.write( (char*)&values_ms123_NP1[i], sizeof(double) );//         = ms123_NP1->Values();
+MS.write( (char*)&values_ms124_N[i], sizeof(double) );//           = ms124_N->Values();
+MS.write( (char*)&values_ms124_NP1[i], sizeof(double) );//         = ms124_NP1->Values();
+MS.write( (char*)&values_ms125_N[i], sizeof(double) );//           = ms125_N->Values();
+MS.write( (char*)&values_ms125_NP1[i], sizeof(double) );//         = ms125_NP1->Values();
+MS.write( (char*)&values_ms126_N[i], sizeof(double) );//           = ms126_N->Values();
+MS.write( (char*)&values_ms126_NP1[i], sizeof(double) );//         = ms126_NP1->Values();
+MS.write( (char*)&values_ms127_N[i], sizeof(double) );//           = ms127_N->Values();
+MS.write( (char*)&values_ms127_NP1[i], sizeof(double) );//         = ms127_NP1->Values();
+MS.write( (char*)&values_ms128_N[i], sizeof(double) );//           = ms128_N->Values();
+MS.write( (char*)&values_ms128_NP1[i], sizeof(double) );//         = ms128_NP1->Values();
+MS.write( (char*)&values_ms129_N[i], sizeof(double) );//           = ms129_N->Values();
+MS.write( (char*)&values_ms129_NP1[i], sizeof(double) );//         = ms129_NP1->Values();
+MS.write( (char*)&values_ms130_N[i], sizeof(double) );//          = ms130_N->Values();
+MS.write( (char*)&values_ms130_NP1[i], sizeof(double) );//        = ms130_NP1->Values();
+
+MS.write( (char*)&values_ms131_N[i], sizeof(double) );//           = ms131_N->Values();
+MS.write( (char*)&values_ms131_NP1[i], sizeof(double) );//         = ms131_NP1->Values();
+MS.write( (char*)&values_ms132_N[i], sizeof(double) );//           = ms132_N->Values();
+MS.write( (char*)&values_ms132_NP1[i], sizeof(double) );//         = ms132_NP1->Values();
+MS.write( (char*)&values_ms133_N[i], sizeof(double) );//           = ms133_N->Values();
+MS.write( (char*)&values_ms133_NP1[i], sizeof(double) );//         = ms133_NP1->Values();
+MS.write( (char*)&values_ms134_N[i], sizeof(double) );//           = ms134_N->Values();
+MS.write( (char*)&values_ms134_NP1[i], sizeof(double) );//         = ms134_NP1->Values();
+MS.write( (char*)&values_ms135_N[i], sizeof(double) );//           = ms135_N->Values();
+MS.write( (char*)&values_ms135_NP1[i], sizeof(double) );//         = ms135_NP1->Values();
+MS.write( (char*)&values_ms136_N[i], sizeof(double) );//           = ms136_N->Values();
+MS.write( (char*)&values_ms136_NP1[i], sizeof(double) );//         = ms136_NP1->Values();
+MS.write( (char*)&values_ms137_N[i], sizeof(double) );//           = ms137_N->Values();
+MS.write( (char*)&values_ms137_NP1[i], sizeof(double) );//         = ms137_NP1->Values();
+MS.write( (char*)&values_ms138_N[i], sizeof(double) );//           = ms138_N->Values();
+MS.write( (char*)&values_ms138_NP1[i], sizeof(double) );//         = ms138_NP1->Values();
+MS.write( (char*)&values_ms139_N[i], sizeof(double) );//           = ms139_N->Values();
+MS.write( (char*)&values_ms139_NP1[i], sizeof(double) );//         = ms139_NP1->Values();
+MS.write( (char*)&values_ms140_N[i], sizeof(double) );//          = ms140_N->Values();
+MS.write( (char*)&values_ms140_NP1[i], sizeof(double) );//        = ms140_NP1->Values();
+
+MS.write( (char*)&values_ms141_N[i], sizeof(double) );//           = ms141_N->Values();
+MS.write( (char*)&values_ms141_NP1[i], sizeof(double) );//         = ms141_NP1->Values();
+MS.write( (char*)&values_ms142_N[i], sizeof(double) );//           = ms142_N->Values();
+MS.write( (char*)&values_ms142_NP1[i], sizeof(double) );//         = ms142_NP1->Values();
+MS.write( (char*)&values_ms143_N[i], sizeof(double) );//           = ms143_N->Values();
+MS.write( (char*)&values_ms143_NP1[i], sizeof(double) );//         = ms143_NP1->Values();
+MS.write( (char*)&values_ms144_N[i], sizeof(double) );//           = ms144_N->Values();
+MS.write( (char*)&values_ms144_NP1[i], sizeof(double) );//         = ms144_NP1->Values();
+MS.write( (char*)&values_ms145_N[i], sizeof(double) );//           = ms145_N->Values();
+MS.write( (char*)&values_ms145_NP1[i], sizeof(double) );//         = ms145_NP1->Values();
+MS.write( (char*)&values_ms146_N[i], sizeof(double) );//           = ms146_N->Values();
+MS.write( (char*)&values_ms146_NP1[i], sizeof(double) );//         = ms146_NP1->Values();
+MS.write( (char*)&values_ms147_N[i], sizeof(double) );//           = ms147_N->Values();
+MS.write( (char*)&values_ms147_NP1[i], sizeof(double) );//         = ms147_NP1->Values();
+MS.write( (char*)&values_ms148_N[i], sizeof(double) );//           = ms148_N->Values();
+MS.write( (char*)&values_ms148_NP1[i], sizeof(double) );//         = ms148_NP1->Values();
+MS.write( (char*)&values_ms149_N[i], sizeof(double) );//           = ms149_N->Values();
+MS.write( (char*)&values_ms149_NP1[i], sizeof(double) );//         = ms149_NP1->Values();
+MS.write( (char*)&values_ms150_N[i], sizeof(double) );//          = ms150_N->Values();
+MS.write( (char*)&values_ms150_NP1[i], sizeof(double) );//        = ms150_NP1->Values();
+
+MS.write( (char*)&values_ms151_N[i], sizeof(double) );//           = ms151_N->Values();
+MS.write( (char*)&values_ms151_NP1[i], sizeof(double) );//         = ms151_NP1->Values();
+MS.write( (char*)&values_ms152_N[i], sizeof(double) );//           = ms152_N->Values();
+MS.write( (char*)&values_ms152_NP1[i], sizeof(double) );//         = ms152_NP1->Values();
+MS.write( (char*)&values_ms153_N[i], sizeof(double) );//           = ms153_N->Values();
+MS.write( (char*)&values_ms153_NP1[i], sizeof(double) );//         = ms153_NP1->Values();
+MS.write( (char*)&values_ms154_N[i], sizeof(double) );//           = ms154_N->Values();
+MS.write( (char*)&values_ms154_NP1[i], sizeof(double) );//         = ms154_NP1->Values();
+MS.write( (char*)&values_ms155_N[i], sizeof(double) );//           = ms155_N->Values();
+MS.write( (char*)&values_ms155_NP1[i], sizeof(double) );//         = ms155_NP1->Values();
+MS.write( (char*)&values_ms156_N[i], sizeof(double) );//           = ms156_N->Values();
+MS.write( (char*)&values_ms156_NP1[i], sizeof(double) );//         = ms156_NP1->Values();
+MS.write( (char*)&values_ms157_N[i], sizeof(double) );//           = ms157_N->Values();
+MS.write( (char*)&values_ms157_NP1[i], sizeof(double) );//         = ms157_NP1->Values();
+MS.write( (char*)&values_ms158_N[i], sizeof(double) );//           = ms158_N->Values();
+MS.write( (char*)&values_ms158_NP1[i], sizeof(double) );//         = ms158_NP1->Values();
+MS.write( (char*)&values_ms159_N[i], sizeof(double) );//           = ms159_N->Values();
+MS.write( (char*)&values_ms159_NP1[i], sizeof(double) );//         = ms159_NP1->Values();
+MS.write( (char*)&values_ms160_N[i], sizeof(double) );//           = ms160_N->Values();
+MS.write( (char*)&values_ms160_NP1[i], sizeof(double) );//         = ms160_NP1->Values();
+
+MS.write( (char*)&values_ms161_N[i], sizeof(double) );//           = ms161_N->Values();
+MS.write( (char*)&values_ms161_NP1[i], sizeof(double) );//         = ms161_NP1->Values();
+MS.write( (char*)&values_ms162_N[i], sizeof(double) );//           = ms162_N->Values();
+MS.write( (char*)&values_ms162_NP1[i], sizeof(double) );//         = ms162_NP1->Values();
+MS.write( (char*)&values_ms163_N[i], sizeof(double) );//           = ms163_N->Values();
+MS.write( (char*)&values_ms163_NP1[i], sizeof(double) );//         = ms163_NP1->Values();
+MS.write( (char*)&values_ms164_N[i], sizeof(double) );//           = ms164_N->Values();
+MS.write( (char*)&values_ms164_NP1[i], sizeof(double) );//         = ms164_NP1->Values();
+MS.write( (char*)&values_ms165_N[i], sizeof(double) );//           = ms165_N->Values();
+MS.write( (char*)&values_ms165_NP1[i], sizeof(double) );//         = ms165_NP1->Values();
+MS.write( (char*)&values_ms166_N[i], sizeof(double) );//           = ms166_N->Values();
+MS.write( (char*)&values_ms166_NP1[i], sizeof(double) );//         = ms166_NP1->Values();
+MS.write( (char*)&values_ms167_N[i], sizeof(double) );//           = ms167_N->Values();
+MS.write( (char*)&values_ms167_NP1[i], sizeof(double) );//         = ms167_NP1->Values();
+MS.write( (char*)&values_ms168_N[i], sizeof(double) );//           = ms168_N->Values();
+MS.write( (char*)&values_ms168_NP1[i], sizeof(double) );//         = ms168_NP1->Values();
+MS.write( (char*)&values_ms169_N[i], sizeof(double) );//           = ms169_N->Values();
+MS.write( (char*)&values_ms169_NP1[i], sizeof(double) );//         = ms169_NP1->Values();
+MS.write( (char*)&values_ms170_N[i], sizeof(double) );//           = ms170_N->Values();
+MS.write( (char*)&values_ms170_NP1[i], sizeof(double) );//         = ms170_NP1->Values();
+
+MS.write( (char*)&values_ms171_N[i], sizeof(double) );//           = ms171_N->Values();
+MS.write( (char*)&values_ms171_NP1[i], sizeof(double) );//         = ms171_NP1->Values();
+MS.write( (char*)&values_ms172_N[i], sizeof(double) );//           = ms172_N->Values();
+MS.write( (char*)&values_ms172_NP1[i], sizeof(double) );//         = ms172_NP1->Values();
+MS.write( (char*)&values_ms173_N[i], sizeof(double) );//           = ms173_N->Values();
+MS.write( (char*)&values_ms173_NP1[i], sizeof(double) );//         = ms173_NP1->Values();
+MS.write( (char*)&values_ms174_N[i], sizeof(double) );//           = ms174_N->Values();
+MS.write( (char*)&values_ms174_NP1[i], sizeof(double) );//         = ms174_NP1->Values();
+MS.write( (char*)&values_ms175_N[i], sizeof(double) );//           = ms175_N->Values();
+MS.write( (char*)&values_ms175_NP1[i], sizeof(double) );//         = ms175_NP1->Values();
+MS.write( (char*)&values_ms176_N[i], sizeof(double) );//           = ms176_N->Values();
+MS.write( (char*)&values_ms176_NP1[i], sizeof(double) );//         = ms176_NP1->Values();
+MS.write( (char*)&values_ms177_N[i], sizeof(double) );//           = ms177_N->Values();
+MS.write( (char*)&values_ms177_NP1[i], sizeof(double) );//         = ms177_NP1->Values();
+MS.write( (char*)&values_ms178_N[i], sizeof(double) );//           = ms178_N->Values();
+MS.write( (char*)&values_ms178_NP1[i], sizeof(double) );//         = ms178_NP1->Values();
+MS.write( (char*)&values_ms179_N[i], sizeof(double) );//           = ms179_N->Values();
+MS.write( (char*)&values_ms179_NP1[i], sizeof(double) );//         = ms179_NP1->Values();
+MS.write( (char*)&values_ms180_N[i], sizeof(double) );//           = ms180_N->Values();
+MS.write( (char*)&values_ms180_NP1[i], sizeof(double) );//         = ms180_NP1->Values();
+
+MS.write( (char*)&values_ms181_N[i], sizeof(double) );//           = ms181_N->Values();
+MS.write( (char*)&values_ms181_NP1[i], sizeof(double) );//         = ms181_NP1->Values();
+MS.write( (char*)&values_ms182_N[i], sizeof(double) );//           = ms182_N->Values();
+MS.write( (char*)&values_ms182_NP1[i], sizeof(double) );//         = ms182_NP1->Values();
+MS.write( (char*)&values_ms183_N[i], sizeof(double) );//           = ms183_N->Values();
+MS.write( (char*)&values_ms183_NP1[i], sizeof(double) );//         = ms183_NP1->Values();
+MS.write( (char*)&values_ms184_N[i], sizeof(double) );//           = ms184_N->Values();
+MS.write( (char*)&values_ms184_NP1[i], sizeof(double) );//         = ms184_NP1->Values();
+MS.write( (char*)&values_ms185_N[i], sizeof(double) );//           = ms185_N->Values();
+MS.write( (char*)&values_ms185_NP1[i], sizeof(double) );//         = ms185_NP1->Values();
+MS.write( (char*)&values_ms186_N[i], sizeof(double) );//           = ms186_N->Values();
+MS.write( (char*)&values_ms186_NP1[i], sizeof(double) );//         = ms186_NP1->Values();
+MS.write( (char*)&values_ms187_N[i], sizeof(double) );//           = ms187_N->Values();
+MS.write( (char*)&values_ms187_NP1[i], sizeof(double) );//         = ms187_NP1->Values();
+MS.write( (char*)&values_ms188_N[i], sizeof(double) );//           = ms188_N->Values();
+MS.write( (char*)&values_ms188_NP1[i], sizeof(double) );//         = ms188_NP1->Values();
+MS.write( (char*)&values_ms189_N[i], sizeof(double) );//           = ms189_N->Values();
+MS.write( (char*)&values_ms189_NP1[i], sizeof(double) );//         = ms189_NP1->Values();
+
+// Micro Damage
+
+MD.write( (char*)&values_md1_N[i], sizeof(double) );//           = md1_N->Values();
+MD.write( (char*)&values_md1_NP1[i], sizeof(double) );//         = md1_NP1->Values();
+MD.write( (char*)&values_md2_N[i], sizeof(double) );//           = md2_N->Values();
+MD.write( (char*)&values_md2_NP1[i], sizeof(double) );//         = md2_NP1->Values();
+MD.write( (char*)&values_md3_N[i], sizeof(double) );//           = md3_N->Values();
+MD.write( (char*)&values_md3_NP1[i], sizeof(double) );//         = md3_NP1->Values();
+MD.write( (char*)&values_md4_N[i], sizeof(double) );//           = md4_N->Values();
+MD.write( (char*)&values_md4_NP1[i], sizeof(double) );//         = md4_NP1->Values();
+MD.write( (char*)&values_md5_N[i], sizeof(double) );//           = md5_N->Values();
+MD.write( (char*)&values_md5_NP1[i], sizeof(double) );//         = md5_NP1->Values();
+MD.write( (char*)&values_md6_N[i], sizeof(double) );//           = md6_N->Values();
+MD.write( (char*)&values_md6_NP1[i], sizeof(double) );//         = md6_NP1->Values();
+MD.write( (char*)&values_md7_N[i], sizeof(double) );//           = md7_N->Values();
+MD.write( (char*)&values_md7_NP1[i], sizeof(double) );//         = md7_NP1->Values();
+MD.write( (char*)&values_md8_N[i], sizeof(double) );//           = md8_N->Values();
+MD.write( (char*)&values_md8_NP1[i], sizeof(double) );//         = md8_NP1->Values();
+MD.write( (char*)&values_md9_N[i], sizeof(double) );//           = md9_N->Values();
+MD.write( (char*)&values_md9_NP1[i], sizeof(double) );//         = md9_NP1->Values();
+MD.write( (char*)&values_md10_N[i], sizeof(double) );//          = md10_N->Values();
+MD.write( (char*)&values_md10_NP1[i], sizeof(double) );//        = md10_NP1->Values();
+
+MD.write( (char*)&values_md11_N[i], sizeof(double) );//           = md11_N->Values();
+MD.write( (char*)&values_md11_NP1[i], sizeof(double) );//         = md11_NP1->Values();
+MD.write( (char*)&values_md12_N[i], sizeof(double) );//           = md12_N->Values();
+MD.write( (char*)&values_md12_NP1[i], sizeof(double) );//         = md12_NP1->Values();
+MD.write( (char*)&values_md13_N[i], sizeof(double) );//           = md13_N->Values();
+MD.write( (char*)&values_md13_NP1[i], sizeof(double) );//         = md13_NP1->Values();
+MD.write( (char*)&values_md14_N[i], sizeof(double) );//           = md14_N->Values();
+MD.write( (char*)&values_md14_NP1[i], sizeof(double) );//         = md14_NP1->Values();
+MD.write( (char*)&values_md15_N[i], sizeof(double) );//           = md15_N->Values();
+MD.write( (char*)&values_md15_NP1[i], sizeof(double) );//         = md15_NP1->Values();
+MD.write( (char*)&values_md16_N[i], sizeof(double) );//           = md16_N->Values();
+MD.write( (char*)&values_md16_NP1[i], sizeof(double) );//         = md16_NP1->Values();
+MD.write( (char*)&values_md17_N[i], sizeof(double) );//           = md17_N->Values();
+MD.write( (char*)&values_md17_NP1[i], sizeof(double) );//         = md17_NP1->Values();
+MD.write( (char*)&values_md18_N[i], sizeof(double) );//           = md18_N->Values();
+MD.write( (char*)&values_md18_NP1[i], sizeof(double) );//         = md18_NP1->Values();
+MD.write( (char*)&values_md19_N[i], sizeof(double) );//           = md19_N->Values();
+MD.write( (char*)&values_md19_NP1[i], sizeof(double) );//         = md19_NP1->Values();
+MD.write( (char*)&values_md20_N[i], sizeof(double) );//          = md20_N->Values();
+MD.write( (char*)&values_md20_NP1[i], sizeof(double) );//        = md20_NP1->Values();
+
+MD.write( (char*)&values_md21_N[i], sizeof(double) );//           = md21_N->Values();
+MD.write( (char*)&values_md21_NP1[i], sizeof(double) );//         = md21_NP1->Values();
+MD.write( (char*)&values_md22_N[i], sizeof(double) );//           = md22_N->Values();
+MD.write( (char*)&values_md22_NP1[i], sizeof(double) );//         = md22_NP1->Values();
+MD.write( (char*)&values_md23_N[i], sizeof(double) );//           = md23_N->Values();
+MD.write( (char*)&values_md23_NP1[i], sizeof(double) );//         = md23_NP1->Values();
+MD.write( (char*)&values_md24_N[i], sizeof(double) );//           = md24_N->Values();
+MD.write( (char*)&values_md24_NP1[i], sizeof(double) );//         = md24_NP1->Values();
+MD.write( (char*)&values_md25_N[i], sizeof(double) );//           = md25_N->Values();
+MD.write( (char*)&values_md25_NP1[i], sizeof(double) );//         = md25_NP1->Values();
+MD.write( (char*)&values_md26_N[i], sizeof(double) );//           = md26_N->Values();
+MD.write( (char*)&values_md26_NP1[i], sizeof(double) );//         = md26_NP1->Values();
+MD.write( (char*)&values_md27_N[i], sizeof(double) );//           = md27_N->Values();
+MD.write( (char*)&values_md27_NP1[i], sizeof(double) );//         = md27_NP1->Values();
+MD.write( (char*)&values_md28_N[i], sizeof(double) );//           = md28_N->Values();
+MD.write( (char*)&values_md28_NP1[i], sizeof(double) );//         = md28_NP1->Values();
+MD.write( (char*)&values_md29_N[i], sizeof(double) );//           = md29_N->Values();
+MD.write( (char*)&values_md29_NP1[i], sizeof(double) );//         = md29_NP1->Values();
+MD.write( (char*)&values_md30_N[i], sizeof(double) );//           = md30_N->Values();
+MD.write( (char*)&values_md30_NP1[i], sizeof(double) );//         = md30_NP1->Values();
+
+MD.write( (char*)&values_md31_N[i], sizeof(double) );//           = md31_N->Values();
+MD.write( (char*)&values_md31_NP1[i], sizeof(double) );//         = md31_NP1->Values();
+MD.write( (char*)&values_md32_N[i], sizeof(double) );//           = md32_N->Values();
+MD.write( (char*)&values_md32_NP1[i], sizeof(double) );//         = md32_NP1->Values();
+MD.write( (char*)&values_md33_N[i], sizeof(double) );//           = md33_N->Values();
+MD.write( (char*)&values_md33_NP1[i], sizeof(double) );//         = md33_NP1->Values();
+MD.write( (char*)&values_md34_N[i], sizeof(double) );//           = md34_N->Values();
+MD.write( (char*)&values_md34_NP1[i], sizeof(double) );//         = md34_NP1->Values();
+MD.write( (char*)&values_md35_N[i], sizeof(double) );//           = md35_N->Values();
+MD.write( (char*)&values_md35_NP1[i], sizeof(double) );//         = md35_NP1->Values();
+MD.write( (char*)&values_md36_N[i], sizeof(double) );//           = md36_N->Values();
+MD.write( (char*)&values_md36_NP1[i], sizeof(double) );//         = md36_NP1->Values();
+MD.write( (char*)&values_md37_N[i], sizeof(double) );//           = md37_N->Values();
+MD.write( (char*)&values_md37_NP1[i], sizeof(double) );//         = md37_NP1->Values();
+
+/////// Bond Level Microstates //////////////////
+BMS.write( (char*)&values_Bms1_N[i], sizeof(double) );//           = Bms1_N->Values();
+BMS.write( (char*)&values_Bms1_NP1[i], sizeof(double) );//         = Bms1_NP1->Values();
+BMS.write( (char*)&values_Bms2_N[i], sizeof(double) );//           = Bms2_N->Values();
+BMS.write( (char*)&values_Bms2_NP1[i], sizeof(double) );//         = Bms2_NP1->Values();
+BMS.write( (char*)&values_Bms3_N[i], sizeof(double) );//           = Bms3_N->Values();
+BMS.write( (char*)&values_Bms3_NP1[i], sizeof(double) );//         = Bms3_NP1->Values();
+BMS.write( (char*)&values_Bms4_N[i], sizeof(double) );//           = Bms4_N->Values();
+BMS.write( (char*)&values_Bms4_NP1[i], sizeof(double) );//         = Bms4_NP1->Values();
+BMS.write( (char*)&values_Bms5_N[i], sizeof(double) );//           = Bms5_N->Values();
+BMS.write( (char*)&values_Bms5_NP1[i], sizeof(double) );//         = Bms5_NP1->Values();
+BMS.write( (char*)&values_Bms6_N[i], sizeof(double) );//           = Bms6_N->Values();
+BMS.write( (char*)&values_Bms6_NP1[i], sizeof(double) );//         = Bms6_NP1->Values();
+BMS.write( (char*)&values_Bms7_N[i], sizeof(double) );//           = Bms7_N->Values();
+BMS.write( (char*)&values_Bms7_NP1[i], sizeof(double) );//         = Bms7_NP1->Values();
+BMS.write( (char*)&values_Bms8_N[i], sizeof(double) );//           = Bms8_N->Values();
+BMS.write( (char*)&values_Bms8_NP1[i], sizeof(double) );//         = Bms8_NP1->Values();
+BMS.write( (char*)&values_Bms9_N[i], sizeof(double) );//           = Bms9_N->Values();
+BMS.write( (char*)&values_Bms9_NP1[i], sizeof(double) );//         = Bms9_NP1->Values();
+BMS.write( (char*)&values_Bms10_N[i], sizeof(double) );//          = Bms10_N->Values();
+BMS.write( (char*)&values_Bms10_NP1[i], sizeof(double) );//        = Bms10_NP1->Values();
+
+BMS.write( (char*)&values_Bms11_N[i], sizeof(double) );//           = Bms11_N->Values();
+BMS.write( (char*)&values_Bms11_NP1[i], sizeof(double) );//         = Bms11_NP1->Values();
+BMS.write( (char*)&values_Bms12_N[i], sizeof(double) );//           = Bms12_N->Values();
+BMS.write( (char*)&values_Bms12_NP1[i], sizeof(double) );//         = Bms12_NP1->Values();
+BMS.write( (char*)&values_Bms13_N[i], sizeof(double) );//           = Bms13_N->Values();
+BMS.write( (char*)&values_Bms13_NP1[i], sizeof(double) );//         = Bms13_NP1->Values();
+BMS.write( (char*)&values_Bms14_N[i], sizeof(double) );//           = Bms14_N->Values();
+BMS.write( (char*)&values_Bms14_NP1[i], sizeof(double) );//         = Bms14_NP1->Values();
+BMS.write( (char*)&values_Bms15_N[i], sizeof(double) );//           = Bms15_N->Values();
+BMS.write( (char*)&values_Bms15_NP1[i], sizeof(double) );//         = Bms15_NP1->Values();
+BMS.write( (char*)&values_Bms16_N[i], sizeof(double) );//           = Bms16_N->Values();
+BMS.write( (char*)&values_Bms16_NP1[i], sizeof(double) );//         = Bms16_NP1->Values();
+BMS.write( (char*)&values_Bms17_N[i], sizeof(double) );//           = Bms17_N->Values();
+BMS.write( (char*)&values_Bms17_NP1[i], sizeof(double) );//         = Bms17_NP1->Values();
+BMS.write( (char*)&values_Bms18_N[i], sizeof(double) );//           = Bms18_N->Values();
+BMS.write( (char*)&values_Bms18_NP1[i], sizeof(double) );//         = Bms18_NP1->Values();
+BMS.write( (char*)&values_Bms19_N[i], sizeof(double) );//           = Bms19_N->Values();
+BMS.write( (char*)&values_Bms19_NP1[i], sizeof(double) );//         = Bms19_NP1->Values();
+BMS.write( (char*)&values_Bms20_N[i], sizeof(double) );//          = Bms20_N->Values();
+BMS.write( (char*)&values_Bms20_NP1[i], sizeof(double) );//        = Bms20_NP1->Values();
+
+BMS.write( (char*)&values_Bms21_N[i], sizeof(double) );//           = Bms21_N->Values();
+BMS.write( (char*)&values_Bms21_NP1[i], sizeof(double) );//         = Bms21_NP1->Values();
+BMS.write( (char*)&values_Bms22_N[i], sizeof(double) );//           = Bms22_N->Values();
+BMS.write( (char*)&values_Bms22_NP1[i], sizeof(double) );//         = Bms22_NP1->Values();
+BMS.write( (char*)&values_Bms23_N[i], sizeof(double) );//           = Bms23_N->Values();
+BMS.write( (char*)&values_Bms23_NP1[i], sizeof(double) );//         = Bms23_NP1->Values();
+BMS.write( (char*)&values_Bms24_N[i], sizeof(double) );//           = Bms24_N->Values();
+BMS.write( (char*)&values_Bms24_NP1[i], sizeof(double) );//         = Bms24_NP1->Values();
+BMS.write( (char*)&values_Bms25_N[i], sizeof(double) );//           = Bms25_N->Values();
+BMS.write( (char*)&values_Bms25_NP1[i], sizeof(double) );//         = Bms25_NP1->Values();
+BMS.write( (char*)&values_Bms26_N[i], sizeof(double) );//           = Bms26_N->Values();
+BMS.write( (char*)&values_Bms26_NP1[i], sizeof(double) );//         = Bms26_NP1->Values();
+BMS.write( (char*)&values_Bms27_N[i], sizeof(double) );//           = Bms27_N->Values();
+BMS.write( (char*)&values_Bms27_NP1[i], sizeof(double) );//         = Bms27_NP1->Values();
+BMS.write( (char*)&values_Bms28_N[i], sizeof(double) );//           = Bms28_N->Values();
+BMS.write( (char*)&values_Bms28_NP1[i], sizeof(double) );//         = Bms28_NP1->Values();
+BMS.write( (char*)&values_Bms29_N[i], sizeof(double) );//           = Bms29_N->Values();
+BMS.write( (char*)&values_Bms29_NP1[i], sizeof(double) );//         = Bms29_NP1->Values();
+BMS.write( (char*)&values_Bms30_N[i], sizeof(double) );//          = Bms30_N->Values();
+BMS.write( (char*)&values_Bms30_NP1[i], sizeof(double) );//        = Bms30_NP1->Values();
+
+BMS.write( (char*)&values_Bms31_N[i], sizeof(double) );//           = Bms31_N->Values();
+BMS.write( (char*)&values_Bms31_NP1[i], sizeof(double) );//         = Bms31_NP1->Values();
+BMS.write( (char*)&values_Bms32_N[i], sizeof(double) );//           = Bms32_N->Values();
+BMS.write( (char*)&values_Bms32_NP1[i], sizeof(double) );//         = Bms32_NP1->Values();
+BMS.write( (char*)&values_Bms33_N[i], sizeof(double) );//           = Bms33_N->Values();
+BMS.write( (char*)&values_Bms33_NP1[i], sizeof(double) );//         = Bms33_NP1->Values();
+BMS.write( (char*)&values_Bms34_N[i], sizeof(double) );//           = Bms34_N->Values();
+BMS.write( (char*)&values_Bms34_NP1[i], sizeof(double) );//         = Bms34_NP1->Values();
+BMS.write( (char*)&values_Bms35_N[i], sizeof(double) );//           = Bms35_N->Values();
+BMS.write( (char*)&values_Bms35_NP1[i], sizeof(double) );//         = Bms35_NP1->Values();
+BMS.write( (char*)&values_Bms36_N[i], sizeof(double) );//           = Bms36_N->Values();
+BMS.write( (char*)&values_Bms36_NP1[i], sizeof(double) );//         = Bms36_NP1->Values();
+BMS.write( (char*)&values_Bms37_N[i], sizeof(double) );//           = Bms37_N->Values();
+BMS.write( (char*)&values_Bms37_NP1[i], sizeof(double) );//         = Bms37_NP1->Values();
+BMS.write( (char*)&values_Bms38_N[i], sizeof(double) );//           = Bms38_N->Values();
+BMS.write( (char*)&values_Bms38_NP1[i], sizeof(double) );//         = Bms38_NP1->Values();
+BMS.write( (char*)&values_Bms39_N[i], sizeof(double) );//           = Bms39_N->Values();
+BMS.write( (char*)&values_Bms39_NP1[i], sizeof(double) );//         = Bms39_NP1->Values();
+BMS.write( (char*)&values_Bms40_N[i], sizeof(double) );//          = Bms40_N->Values();
+BMS.write( (char*)&values_Bms40_NP1[i], sizeof(double) );//        = Bms40_NP1->Values();
+
+BMS.write( (char*)&values_Bms41_N[i], sizeof(double) );//           = Bms41_N->Values();
+BMS.write( (char*)&values_Bms41_NP1[i], sizeof(double) );//         = Bms41_NP1->Values();
+BMS.write( (char*)&values_Bms42_N[i], sizeof(double) );//           = Bms42_N->Values();
+BMS.write( (char*)&values_Bms42_NP1[i], sizeof(double) );//         = Bms42_NP1->Values();
+BMS.write( (char*)&values_Bms43_N[i], sizeof(double) );//           = Bms43_N->Values();
+BMS.write( (char*)&values_Bms43_NP1[i], sizeof(double) );//         = Bms43_NP1->Values();
+BMS.write( (char*)&values_Bms44_N[i], sizeof(double) );//           = Bms44_N->Values();
+BMS.write( (char*)&values_Bms44_NP1[i], sizeof(double) );//         = Bms44_NP1->Values();
+BMS.write( (char*)&values_Bms45_N[i], sizeof(double) );//           = Bms45_N->Values();
+BMS.write( (char*)&values_Bms45_NP1[i], sizeof(double) );//         = Bms45_NP1->Values();
+BMS.write( (char*)&values_Bms46_N[i], sizeof(double) );//           = Bms46_N->Values();
+BMS.write( (char*)&values_Bms46_NP1[i], sizeof(double) );//         = Bms46_NP1->Values();
+BMS.write( (char*)&values_Bms47_N[i], sizeof(double) );//           = Bms47_N->Values();
+BMS.write( (char*)&values_Bms47_NP1[i], sizeof(double) );//         = Bms47_NP1->Values();
+BMS.write( (char*)&values_Bms48_N[i], sizeof(double) );//           = Bms48_N->Values();
+BMS.write( (char*)&values_Bms48_NP1[i], sizeof(double) );//         = Bms48_NP1->Values();
+BMS.write( (char*)&values_Bms49_N[i], sizeof(double) );//           = Bms49_N->Values();
+BMS.write( (char*)&values_Bms49_NP1[i], sizeof(double) );//         = Bms49_NP1->Values();
+BMS.write( (char*)&values_Bms50_N[i], sizeof(double) );//          = Bms50_N->Values();
+BMS.write( (char*)&values_Bms50_NP1[i], sizeof(double) );//        = Bms50_NP1->Values();
+
+BMS.write( (char*)&values_Bms51_N[i], sizeof(double) );//           = Bms51_N->Values();
+BMS.write( (char*)&values_Bms51_NP1[i], sizeof(double) );//         = Bms51_NP1->Values();
+BMS.write( (char*)&values_Bms52_N[i], sizeof(double) );//           = Bms52_N->Values();
+BMS.write( (char*)&values_Bms52_NP1[i], sizeof(double) );//         = Bms52_NP1->Values();
+BMS.write( (char*)&values_Bms53_N[i], sizeof(double) );//           = Bms53_N->Values();
+BMS.write( (char*)&values_Bms53_NP1[i], sizeof(double) );//         = Bms53_NP1->Values();
+BMS.write( (char*)&values_Bms54_N[i], sizeof(double) );//           = Bms54_N->Values();
+BMS.write( (char*)&values_Bms54_NP1[i], sizeof(double) );//         = Bms54_NP1->Values();
+BMS.write( (char*)&values_Bms55_N[i], sizeof(double) );//           = Bms55_N->Values();
+BMS.write( (char*)&values_Bms55_NP1[i], sizeof(double) );//         = Bms55_NP1->Values();
+BMS.write( (char*)&values_Bms56_N[i], sizeof(double) );//           = Bms56_N->Values();
+BMS.write( (char*)&values_Bms56_NP1[i], sizeof(double) );//         = Bms56_NP1->Values();
+BMS.write( (char*)&values_Bms57_N[i], sizeof(double) );//           = Bms57_N->Values();
+BMS.write( (char*)&values_Bms57_NP1[i], sizeof(double) );//         = Bms57_NP1->Values();
+BMS.write( (char*)&values_Bms58_N[i], sizeof(double) );//           = Bms58_N->Values();
+BMS.write( (char*)&values_Bms58_NP1[i], sizeof(double) );//         = Bms58_NP1->Values();
+BMS.write( (char*)&values_Bms59_N[i], sizeof(double) );//           = Bms59_N->Values();
+BMS.write( (char*)&values_Bms59_NP1[i], sizeof(double) );//         = Bms59_NP1->Values();
+BMS.write( (char*)&values_Bms60_N[i], sizeof(double) );//           = Bms60_N->Values();
+BMS.write( (char*)&values_Bms60_NP1[i], sizeof(double) );//         = Bms60_NP1->Values();
+
+BMS.write( (char*)&values_Bms61_N[i], sizeof(double) );//           = Bms61_N->Values();
+BMS.write( (char*)&values_Bms61_NP1[i], sizeof(double) );//         = Bms61_NP1->Values();
+BMS.write( (char*)&values_Bms62_N[i], sizeof(double) );//           = Bms62_N->Values();
+BMS.write( (char*)&values_Bms62_NP1[i], sizeof(double) );//         = Bms62_NP1->Values();
+BMS.write( (char*)&values_Bms63_N[i], sizeof(double) );//           = Bms63_N->Values();
+BMS.write( (char*)&values_Bms63_NP1[i], sizeof(double) );//         = Bms63_NP1->Values();
+BMS.write( (char*)&values_Bms64_N[i], sizeof(double) );//           = Bms64_N->Values();
+BMS.write( (char*)&values_Bms64_NP1[i], sizeof(double) );//         = Bms64_NP1->Values();
+BMS.write( (char*)&values_Bms65_N[i], sizeof(double) );//           = Bms65_N->Values();
+BMS.write( (char*)&values_Bms65_NP1[i], sizeof(double) );//         = Bms65_NP1->Values();
+BMS.write( (char*)&values_Bms66_N[i], sizeof(double) );//           = Bms66_N->Values();
+BMS.write( (char*)&values_Bms66_NP1[i], sizeof(double) );//         = Bms66_NP1->Values();
+BMS.write( (char*)&values_Bms67_N[i], sizeof(double) );//           = Bms67_N->Values();
+BMS.write( (char*)&values_Bms67_NP1[i], sizeof(double) );//         = Bms67_NP1->Values();
+BMS.write( (char*)&values_Bms68_N[i], sizeof(double) );//           = Bms68_N->Values();
+BMS.write( (char*)&values_Bms68_NP1[i], sizeof(double) );//         = Bms68_NP1->Values();
+BMS.write( (char*)&values_Bms69_N[i], sizeof(double) );//           = Bms69_N->Values();
+BMS.write( (char*)&values_Bms69_NP1[i], sizeof(double) );//         = Bms69_NP1->Values();
+BMS.write( (char*)&values_Bms70_N[i], sizeof(double) );//           = Bms70_N->Values();
+BMS.write( (char*)&values_Bms70_NP1[i], sizeof(double) );//         = Bms70_NP1->Values();
+
+BMS.write( (char*)&values_Bms71_N[i], sizeof(double) );//           = Bms71_N->Values();
+BMS.write( (char*)&values_Bms71_NP1[i], sizeof(double) );//         = Bms71_NP1->Values();
+BMS.write( (char*)&values_Bms72_N[i], sizeof(double) );//           = Bms72_N->Values();
+BMS.write( (char*)&values_Bms72_NP1[i], sizeof(double) );//         = Bms72_NP1->Values();
+BMS.write( (char*)&values_Bms73_N[i], sizeof(double) );//           = Bms73_N->Values();
+BMS.write( (char*)&values_Bms73_NP1[i], sizeof(double) );//         = Bms73_NP1->Values();
+BMS.write( (char*)&values_Bms74_N[i], sizeof(double) );//           = Bms74_N->Values();
+BMS.write( (char*)&values_Bms74_NP1[i], sizeof(double) );//         = Bms74_NP1->Values();
+BMS.write( (char*)&values_Bms75_N[i], sizeof(double) );//           = Bms75_N->Values();
+BMS.write( (char*)&values_Bms75_NP1[i], sizeof(double) );//         = Bms75_NP1->Values();
+BMS.write( (char*)&values_Bms76_N[i], sizeof(double) );//           = Bms76_N->Values();
+BMS.write( (char*)&values_Bms76_NP1[i], sizeof(double) );//         = Bms76_NP1->Values();
+BMS.write( (char*)&values_Bms77_N[i], sizeof(double) );//           = Bms77_N->Values();
+BMS.write( (char*)&values_Bms77_NP1[i], sizeof(double) );//         = Bms77_NP1->Values();
+BMS.write( (char*)&values_Bms78_N[i], sizeof(double) );//           = Bms78_N->Values();
+BMS.write( (char*)&values_Bms78_NP1[i], sizeof(double) );//         = Bms78_NP1->Values();
+BMS.write( (char*)&values_Bms79_N[i], sizeof(double) );//           = Bms79_N->Values();
+BMS.write( (char*)&values_Bms79_NP1[i], sizeof(double) );//         = Bms79_NP1->Values();
+BMS.write( (char*)&values_Bms80_N[i], sizeof(double) );//           = Bms80_N->Values();
+BMS.write( (char*)&values_Bms80_NP1[i], sizeof(double) );//         = Bms80_NP1->Values();
+
+BMS.write( (char*)&values_Bms81_N[i], sizeof(double) );//           = Bms81_N->Values();
+BMS.write( (char*)&values_Bms81_NP1[i], sizeof(double) );//         = Bms81_NP1->Values();
+BMS.write( (char*)&values_Bms82_N[i], sizeof(double) );//           = Bms82_N->Values();
+BMS.write( (char*)&values_Bms82_NP1[i], sizeof(double) );//         = Bms82_NP1->Values();
+BMS.write( (char*)&values_Bms83_N[i], sizeof(double) );//           = Bms83_N->Values();
+BMS.write( (char*)&values_Bms83_NP1[i], sizeof(double) );//         = Bms83_NP1->Values();
+BMS.write( (char*)&values_Bms84_N[i], sizeof(double) );//           = Bms84_N->Values();
+BMS.write( (char*)&values_Bms84_NP1[i], sizeof(double) );//         = Bms84_NP1->Values();
+BMS.write( (char*)&values_Bms85_N[i], sizeof(double) );//           = Bms85_N->Values();
+BMS.write( (char*)&values_Bms85_NP1[i], sizeof(double) );//         = Bms85_NP1->Values();
+BMS.write( (char*)&values_Bms86_N[i], sizeof(double) );//           = Bms86_N->Values();
+BMS.write( (char*)&values_Bms86_NP1[i], sizeof(double) );//         = Bms86_NP1->Values();
+BMS.write( (char*)&values_Bms87_N[i], sizeof(double) );//           = Bms87_N->Values();
+BMS.write( (char*)&values_Bms87_NP1[i], sizeof(double) );//         = Bms87_NP1->Values();
+BMS.write( (char*)&values_Bms88_N[i], sizeof(double) );//           = Bms88_N->Values();
+BMS.write( (char*)&values_Bms88_NP1[i], sizeof(double) );//         = Bms88_NP1->Values();
+BMS.write( (char*)&values_Bms89_N[i], sizeof(double) );//           = Bms89_N->Values();
+BMS.write( (char*)&values_Bms89_NP1[i], sizeof(double) );//         = Bms89_NP1->Values();
+BMS.write( (char*)&values_Bms90_N[i], sizeof(double) );//           = Bms90_N->Values();
+BMS.write( (char*)&values_Bms90_NP1[i], sizeof(double) );//         = Bms90_NP1->Values();
+
+BMS.write( (char*)&values_Bms91_N[i], sizeof(double) );//           = Bms91_N->Values();
+BMS.write( (char*)&values_Bms91_NP1[i], sizeof(double) );//         = Bms91_NP1->Values();
+BMS.write( (char*)&values_Bms92_N[i], sizeof(double) );//           = Bms92_N->Values();
+BMS.write( (char*)&values_Bms92_NP1[i], sizeof(double) );//         = Bms92_NP1->Values();
+BMS.write( (char*)&values_Bms93_N[i], sizeof(double) );//           = Bms93_N->Values();
+BMS.write( (char*)&values_Bms93_NP1[i], sizeof(double) );//         = Bms93_NP1->Values();
+BMS.write( (char*)&values_Bms94_N[i], sizeof(double) );//           = Bms94_N->Values();
+BMS.write( (char*)&values_Bms94_NP1[i], sizeof(double) );//         = Bms94_NP1->Values();
+BMS.write( (char*)&values_Bms95_N[i], sizeof(double) );//           = Bms95_N->Values();
+BMS.write( (char*)&values_Bms95_NP1[i], sizeof(double) );//         = Bms95_NP1->Values();
+BMS.write( (char*)&values_Bms96_N[i], sizeof(double) );//           = Bms96_N->Values();
+BMS.write( (char*)&values_Bms96_NP1[i], sizeof(double) );//         = Bms96_NP1->Values();
+BMS.write( (char*)&values_Bms97_N[i], sizeof(double) );//           = Bms97_N->Values();
+BMS.write( (char*)&values_Bms97_NP1[i], sizeof(double) );//         = Bms97_NP1->Values();
+BMS.write( (char*)&values_Bms98_N[i], sizeof(double) );//           = Bms98_N->Values();
+BMS.write( (char*)&values_Bms98_NP1[i], sizeof(double) );//         = Bms98_NP1->Values();
+BMS.write( (char*)&values_Bms99_N[i], sizeof(double) );//           = Bms99_N->Values();
+BMS.write( (char*)&values_Bms99_NP1[i], sizeof(double) );//         = Bms99_NP1->Values();
+BMS.write( (char*)&values_Bms100_N[i], sizeof(double) );//           = Bms100_N->Values();
+BMS.write( (char*)&values_Bms100_NP1[i], sizeof(double) );//         = Bms100_NP1->Values();
+
+
+BMS.write( (char*)&values_Bms101_N[i], sizeof(double) );//           = Bms101_N->Values();
+BMS.write( (char*)&values_Bms101_NP1[i], sizeof(double) );//         = Bms101_NP1->Values();
+BMS.write( (char*)&values_Bms102_N[i], sizeof(double) );//           = Bms102_N->Values();
+BMS.write( (char*)&values_Bms102_NP1[i], sizeof(double) );//         = Bms102_NP1->Values();
+BMS.write( (char*)&values_Bms103_N[i], sizeof(double) );//           = Bms103_N->Values();
+BMS.write( (char*)&values_Bms103_NP1[i], sizeof(double) );//         = Bms103_NP1->Values();
+BMS.write( (char*)&values_Bms104_N[i], sizeof(double) );//           = Bms104_N->Values();
+BMS.write( (char*)&values_Bms104_NP1[i], sizeof(double) );//         = Bms104_NP1->Values();
+BMS.write( (char*)&values_Bms105_N[i], sizeof(double) );//           = Bms105_N->Values();
+BMS.write( (char*)&values_Bms105_NP1[i], sizeof(double) );//         = Bms105_NP1->Values();
+BMS.write( (char*)&values_Bms106_N[i], sizeof(double) );//           = Bms106_N->Values();
+BMS.write( (char*)&values_Bms106_NP1[i], sizeof(double) );//         = Bms106_NP1->Values();
+BMS.write( (char*)&values_Bms107_N[i], sizeof(double) );//           = Bms107_N->Values();
+BMS.write( (char*)&values_Bms107_NP1[i], sizeof(double) );//         = Bms107_NP1->Values();
+BMS.write( (char*)&values_Bms108_N[i], sizeof(double) );//           = Bms108_N->Values();
+BMS.write( (char*)&values_Bms108_NP1[i], sizeof(double) );//         = Bms108_NP1->Values();
+BMS.write( (char*)&values_Bms109_N[i], sizeof(double) );//           = Bms109_N->Values();
+BMS.write( (char*)&values_Bms109_NP1[i], sizeof(double) );//         = Bms109_NP1->Values();
+BMS.write( (char*)&values_Bms110_N[i], sizeof(double) );//          = Bms100_N->Values();
+BMS.write( (char*)&values_Bms110_NP1[i], sizeof(double) );//        = Bms100_NP1->Values();
+
+BMS.write( (char*)&values_Bms111_N[i], sizeof(double) );//           = Bms111_N->Values();
+BMS.write( (char*)&values_Bms111_NP1[i], sizeof(double) );//         = Bms111_NP1->Values();
+BMS.write( (char*)&values_Bms112_N[i], sizeof(double) );//           = Bms112_N->Values();
+BMS.write( (char*)&values_Bms112_NP1[i], sizeof(double) );//         = Bms112_NP1->Values();
+BMS.write( (char*)&values_Bms113_N[i], sizeof(double) );//           = Bms113_N->Values();
+BMS.write( (char*)&values_Bms113_NP1[i], sizeof(double) );//         = Bms113_NP1->Values();
+BMS.write( (char*)&values_Bms114_N[i], sizeof(double) );//           = Bms114_N->Values();
+BMS.write( (char*)&values_Bms114_NP1[i], sizeof(double) );//         = Bms114_NP1->Values();
+BMS.write( (char*)&values_Bms115_N[i], sizeof(double) );//           = Bms115_N->Values();
+BMS.write( (char*)&values_Bms115_NP1[i], sizeof(double) );//         = Bms115_NP1->Values();
+BMS.write( (char*)&values_Bms116_N[i], sizeof(double) );//           = Bms116_N->Values();
+BMS.write( (char*)&values_Bms116_NP1[i], sizeof(double) );//         = Bms116_NP1->Values();
+BMS.write( (char*)&values_Bms117_N[i], sizeof(double) );//           = Bms117_N->Values();
+BMS.write( (char*)&values_Bms117_NP1[i], sizeof(double) );//         = Bms117_NP1->Values();
+BMS.write( (char*)&values_Bms118_N[i], sizeof(double) );//           = Bms118_N->Values();
+BMS.write( (char*)&values_Bms118_NP1[i], sizeof(double) );//         = Bms118_NP1->Values();
+BMS.write( (char*)&values_Bms119_N[i], sizeof(double) );//           = Bms119_N->Values();
+BMS.write( (char*)&values_Bms119_NP1[i], sizeof(double) );//         = Bms119_NP1->Values();
+BMS.write( (char*)&values_Bms120_N[i], sizeof(double) );//          = Bms120_N->Values();
+BMS.write( (char*)&values_Bms120_NP1[i], sizeof(double) );//        = Bms120_NP1->Values();
+
+BMS.write( (char*)&values_Bms121_N[i], sizeof(double) );//           = Bms121_N->Values();
+BMS.write( (char*)&values_Bms121_NP1[i], sizeof(double) );//         = Bms121_NP1->Values();
+BMS.write( (char*)&values_Bms122_N[i], sizeof(double) );//           = Bms122_N->Values();
+BMS.write( (char*)&values_Bms122_NP1[i], sizeof(double) );//         = Bms122_NP1->Values();
+BMS.write( (char*)&values_Bms123_N[i], sizeof(double) );//           = Bms123_N->Values();
+BMS.write( (char*)&values_Bms123_NP1[i], sizeof(double) );//         = Bms123_NP1->Values();
+BMS.write( (char*)&values_Bms124_N[i], sizeof(double) );//           = Bms124_N->Values();
+BMS.write( (char*)&values_Bms124_NP1[i], sizeof(double) );//         = Bms124_NP1->Values();
+BMS.write( (char*)&values_Bms125_N[i], sizeof(double) );//           = Bms125_N->Values();
+BMS.write( (char*)&values_Bms125_NP1[i], sizeof(double) );//         = Bms125_NP1->Values();
+BMS.write( (char*)&values_Bms126_N[i], sizeof(double) );//           = Bms126_N->Values();
+BMS.write( (char*)&values_Bms126_NP1[i], sizeof(double) );//         = Bms126_NP1->Values();
+BMS.write( (char*)&values_Bms127_N[i], sizeof(double) );//           = Bms127_N->Values();
+BMS.write( (char*)&values_Bms127_NP1[i], sizeof(double) );//         = Bms127_NP1->Values();
+BMS.write( (char*)&values_Bms128_N[i], sizeof(double) );//           = Bms128_N->Values();
+BMS.write( (char*)&values_Bms128_NP1[i], sizeof(double) );//         = Bms128_NP1->Values();
+BMS.write( (char*)&values_Bms129_N[i], sizeof(double) );//           = Bms129_N->Values();
+BMS.write( (char*)&values_Bms129_NP1[i], sizeof(double) );//         = Bms129_NP1->Values();
+BMS.write( (char*)&values_Bms130_N[i], sizeof(double) );//          = Bms130_N->Values();
+BMS.write( (char*)&values_Bms130_NP1[i], sizeof(double) );//        = Bms130_NP1->Values();
+
+BMS.write( (char*)&values_Bms131_N[i], sizeof(double) );//           = Bms131_N->Values();
+BMS.write( (char*)&values_Bms131_NP1[i], sizeof(double) );//         = Bms131_NP1->Values();
+BMS.write( (char*)&values_Bms132_N[i], sizeof(double) );//           = Bms132_N->Values();
+BMS.write( (char*)&values_Bms132_NP1[i], sizeof(double) );//         = Bms132_NP1->Values();
+BMS.write( (char*)&values_Bms133_N[i], sizeof(double) );//           = Bms133_N->Values();
+BMS.write( (char*)&values_Bms133_NP1[i], sizeof(double) );//         = Bms133_NP1->Values();
+BMS.write( (char*)&values_Bms134_N[i], sizeof(double) );//           = Bms134_N->Values();
+BMS.write( (char*)&values_Bms134_NP1[i], sizeof(double) );//         = Bms134_NP1->Values();
+BMS.write( (char*)&values_Bms135_N[i], sizeof(double) );//           = Bms135_N->Values();
+BMS.write( (char*)&values_Bms135_NP1[i], sizeof(double) );//         = Bms135_NP1->Values();
+BMS.write( (char*)&values_Bms136_N[i], sizeof(double) );//           = Bms136_N->Values();
+BMS.write( (char*)&values_Bms136_NP1[i], sizeof(double) );//         = Bms136_NP1->Values();
+BMS.write( (char*)&values_Bms137_N[i], sizeof(double) );//           = Bms137_N->Values();
+BMS.write( (char*)&values_Bms137_NP1[i], sizeof(double) );//         = Bms137_NP1->Values();
+BMS.write( (char*)&values_Bms138_N[i], sizeof(double) );//           = Bms138_N->Values();
+BMS.write( (char*)&values_Bms138_NP1[i], sizeof(double) );//         = Bms138_NP1->Values();
+BMS.write( (char*)&values_Bms139_N[i], sizeof(double) );//           = Bms139_N->Values();
+BMS.write( (char*)&values_Bms139_NP1[i], sizeof(double) );//         = Bms139_NP1->Values();
+BMS.write( (char*)&values_Bms140_N[i], sizeof(double) );//          = Bms140_N->Values();
+BMS.write( (char*)&values_Bms140_NP1[i], sizeof(double) );//        = Bms140_NP1->Values();
+
+BMS.write( (char*)&values_Bms141_N[i], sizeof(double) );//           = Bms141_N->Values();
+BMS.write( (char*)&values_Bms141_NP1[i], sizeof(double) );//         = Bms141_NP1->Values();
+BMS.write( (char*)&values_Bms142_N[i], sizeof(double) );//           = Bms142_N->Values();
+BMS.write( (char*)&values_Bms142_NP1[i], sizeof(double) );//         = Bms142_NP1->Values();
+BMS.write( (char*)&values_Bms143_N[i], sizeof(double) );//           = Bms143_N->Values();
+BMS.write( (char*)&values_Bms143_NP1[i], sizeof(double) );//         = Bms143_NP1->Values();
+BMS.write( (char*)&values_Bms144_N[i], sizeof(double) );//           = Bms144_N->Values();
+BMS.write( (char*)&values_Bms144_NP1[i], sizeof(double) );//         = Bms144_NP1->Values();
+BMS.write( (char*)&values_Bms145_N[i], sizeof(double) );//           = Bms145_N->Values();
+BMS.write( (char*)&values_Bms145_NP1[i], sizeof(double) );//         = Bms145_NP1->Values();
+BMS.write( (char*)&values_Bms146_N[i], sizeof(double) );//           = Bms146_N->Values();
+BMS.write( (char*)&values_Bms146_NP1[i], sizeof(double) );//         = Bms146_NP1->Values();
+BMS.write( (char*)&values_Bms147_N[i], sizeof(double) );//           = Bms147_N->Values();
+BMS.write( (char*)&values_Bms147_NP1[i], sizeof(double) );//         = Bms147_NP1->Values();
+BMS.write( (char*)&values_Bms148_N[i], sizeof(double) );//           = Bms148_N->Values();
+BMS.write( (char*)&values_Bms148_NP1[i], sizeof(double) );//         = Bms148_NP1->Values();
+BMS.write( (char*)&values_Bms149_N[i], sizeof(double) );//           = Bms149_N->Values();
+BMS.write( (char*)&values_Bms149_NP1[i], sizeof(double) );//         = Bms149_NP1->Values();
+BMS.write( (char*)&values_Bms150_N[i], sizeof(double) );//          = Bms150_N->Values();
+BMS.write( (char*)&values_Bms150_NP1[i], sizeof(double) );//        = Bms150_NP1->Values();
+
+BMS.write( (char*)&values_Bms151_N[i], sizeof(double) );//           = Bms151_N->Values();
+BMS.write( (char*)&values_Bms151_NP1[i], sizeof(double) );//         = Bms151_NP1->Values();
+BMS.write( (char*)&values_Bms152_N[i], sizeof(double) );//           = Bms152_N->Values();
+BMS.write( (char*)&values_Bms152_NP1[i], sizeof(double) );//         = Bms152_NP1->Values();
+BMS.write( (char*)&values_Bms153_N[i], sizeof(double) );//           = Bms153_N->Values();
+BMS.write( (char*)&values_Bms153_NP1[i], sizeof(double) );//         = Bms153_NP1->Values();
+BMS.write( (char*)&values_Bms154_N[i], sizeof(double) );//           = Bms154_N->Values();
+BMS.write( (char*)&values_Bms154_NP1[i], sizeof(double) );//         = Bms154_NP1->Values();
+BMS.write( (char*)&values_Bms155_N[i], sizeof(double) );//           = Bms155_N->Values();
+BMS.write( (char*)&values_Bms155_NP1[i], sizeof(double) );//         = Bms155_NP1->Values();
+BMS.write( (char*)&values_Bms156_N[i], sizeof(double) );//           = Bms156_N->Values();
+BMS.write( (char*)&values_Bms156_NP1[i], sizeof(double) );//         = Bms156_NP1->Values();
+BMS.write( (char*)&values_Bms157_N[i], sizeof(double) );//           = Bms157_N->Values();
+BMS.write( (char*)&values_Bms157_NP1[i], sizeof(double) );//         = Bms157_NP1->Values();
+BMS.write( (char*)&values_Bms158_N[i], sizeof(double) );//           = Bms158_N->Values();
+BMS.write( (char*)&values_Bms158_NP1[i], sizeof(double) );//         = Bms158_NP1->Values();
+BMS.write( (char*)&values_Bms159_N[i], sizeof(double) );//           = Bms159_N->Values();
+BMS.write( (char*)&values_Bms159_NP1[i], sizeof(double) );//         = Bms159_NP1->Values();
+BMS.write( (char*)&values_Bms160_N[i], sizeof(double) );//           = Bms160_N->Values();
+BMS.write( (char*)&values_Bms160_NP1[i], sizeof(double) );//         = Bms160_NP1->Values();
+
+BMS.write( (char*)&values_Bms161_N[i], sizeof(double) );//           = Bms161_N->Values();
+BMS.write( (char*)&values_Bms161_NP1[i], sizeof(double) );//         = Bms161_NP1->Values();
+BMS.write( (char*)&values_Bms162_N[i], sizeof(double) );//           = Bms162_N->Values();
+BMS.write( (char*)&values_Bms162_NP1[i], sizeof(double) );//         = Bms162_NP1->Values();
+BMS.write( (char*)&values_Bms163_N[i], sizeof(double) );//           = Bms163_N->Values();
+BMS.write( (char*)&values_Bms163_NP1[i], sizeof(double) );//         = Bms163_NP1->Values();
+BMS.write( (char*)&values_Bms164_N[i], sizeof(double) );//           = Bms164_N->Values();
+BMS.write( (char*)&values_Bms164_NP1[i], sizeof(double) );//         = Bms164_NP1->Values();
+BMS.write( (char*)&values_Bms165_N[i], sizeof(double) );//           = Bms165_N->Values();
+BMS.write( (char*)&values_Bms165_NP1[i], sizeof(double) );//         = Bms165_NP1->Values();
+BMS.write( (char*)&values_Bms166_N[i], sizeof(double) );//           = Bms166_N->Values();
+BMS.write( (char*)&values_Bms166_NP1[i], sizeof(double) );//         = Bms166_NP1->Values();
+BMS.write( (char*)&values_Bms167_N[i], sizeof(double) );//           = Bms167_N->Values();
+BMS.write( (char*)&values_Bms167_NP1[i], sizeof(double) );//         = Bms167_NP1->Values();
+BMS.write( (char*)&values_Bms168_N[i], sizeof(double) );//           = Bms168_N->Values();
+BMS.write( (char*)&values_Bms168_NP1[i], sizeof(double) );//         = Bms168_NP1->Values();
+BMS.write( (char*)&values_Bms169_N[i], sizeof(double) );//           = Bms169_N->Values();
+BMS.write( (char*)&values_Bms169_NP1[i], sizeof(double) );//         = Bms169_NP1->Values();
+BMS.write( (char*)&values_Bms170_N[i], sizeof(double) );//           = Bms170_N->Values();
+BMS.write( (char*)&values_Bms170_NP1[i], sizeof(double) );//         = Bms170_NP1->Values();
+
+BMS.write( (char*)&values_Bms171_N[i], sizeof(double) );//           = Bms171_N->Values();
+BMS.write( (char*)&values_Bms171_NP1[i], sizeof(double) );//         = Bms171_NP1->Values();
+BMS.write( (char*)&values_Bms172_N[i], sizeof(double) );//           = Bms172_N->Values();
+BMS.write( (char*)&values_Bms172_NP1[i], sizeof(double) );//         = Bms172_NP1->Values();
+BMS.write( (char*)&values_Bms173_N[i], sizeof(double) );//           = Bms173_N->Values();
+BMS.write( (char*)&values_Bms173_NP1[i], sizeof(double) );//         = Bms173_NP1->Values();
+BMS.write( (char*)&values_Bms174_N[i], sizeof(double) );//           = Bms174_N->Values();
+BMS.write( (char*)&values_Bms174_NP1[i], sizeof(double) );//         = Bms174_NP1->Values();
+BMS.write( (char*)&values_Bms175_N[i], sizeof(double) );//           = Bms175_N->Values();
+BMS.write( (char*)&values_Bms175_NP1[i], sizeof(double) );//         = Bms175_NP1->Values();
+BMS.write( (char*)&values_Bms176_N[i], sizeof(double) );//           = Bms176_N->Values();
+BMS.write( (char*)&values_Bms176_NP1[i], sizeof(double) );//         = Bms176_NP1->Values();
+BMS.write( (char*)&values_Bms177_N[i], sizeof(double) );//           = Bms177_N->Values();
+BMS.write( (char*)&values_Bms177_NP1[i], sizeof(double) );//         = Bms177_NP1->Values();
+BMS.write( (char*)&values_Bms178_N[i], sizeof(double) );//           = Bms178_N->Values();
+BMS.write( (char*)&values_Bms178_NP1[i], sizeof(double) );//         = Bms178_NP1->Values();
+BMS.write( (char*)&values_Bms179_N[i], sizeof(double) );//           = Bms179_N->Values();
+BMS.write( (char*)&values_Bms179_NP1[i], sizeof(double) );//         = Bms179_NP1->Values();
+BMS.write( (char*)&values_Bms180_N[i], sizeof(double) );//           = Bms180_N->Values();
+BMS.write( (char*)&values_Bms180_NP1[i], sizeof(double) );//         = Bms180_NP1->Values();
+
+BMS.write( (char*)&values_Bms181_N[i], sizeof(double) );//           = Bms181_N->Values();
+BMS.write( (char*)&values_Bms181_NP1[i], sizeof(double) );//         = Bms181_NP1->Values();
+BMS.write( (char*)&values_Bms182_N[i], sizeof(double) );//           = Bms182_N->Values();
+BMS.write( (char*)&values_Bms182_NP1[i], sizeof(double) );//         = Bms182_NP1->Values();
+BMS.write( (char*)&values_Bms183_N[i], sizeof(double) );//           = Bms183_N->Values();
+BMS.write( (char*)&values_Bms183_NP1[i], sizeof(double) );//         = Bms183_NP1->Values();
+BMS.write( (char*)&values_Bms184_N[i], sizeof(double) );//           = Bms184_N->Values();
+BMS.write( (char*)&values_Bms184_NP1[i], sizeof(double) );//         = Bms184_NP1->Values();
+BMS.write( (char*)&values_Bms185_N[i], sizeof(double) );//           = Bms185_N->Values();
+BMS.write( (char*)&values_Bms185_NP1[i], sizeof(double) );//         = Bms185_NP1->Values();
+BMS.write( (char*)&values_Bms186_N[i], sizeof(double) );//           = Bms186_N->Values();
+BMS.write( (char*)&values_Bms186_NP1[i], sizeof(double) );//         = Bms186_NP1->Values();
+BMS.write( (char*)&values_Bms187_N[i], sizeof(double) );//           = Bms187_N->Values();
+BMS.write( (char*)&values_Bms187_NP1[i], sizeof(double) );//         = Bms187_NP1->Values();
+BMS.write( (char*)&values_Bms188_N[i], sizeof(double) );//           = Bms188_N->Values();
+BMS.write( (char*)&values_Bms188_NP1[i], sizeof(double) );//         = Bms188_NP1->Values();
+BMS.write( (char*)&values_Bms189_N[i], sizeof(double) );//           = Bms189_N->Values();
+BMS.write( (char*)&values_Bms189_NP1[i], sizeof(double) );//         = Bms189_NP1->Values();
+
+/////// Bond Level Microdamage //////////////////
+BMD.write( (char*)&values_Bmd1_N[i], sizeof(double) );//           = Bmd1_N->Values();
+BMD.write( (char*)&values_Bmd1_NP1[i], sizeof(double) );//         = Bmd1_NP1->Values();
+BMD.write( (char*)&values_Bmd2_N[i], sizeof(double) );//           = Bmd2_N->Values();
+BMD.write( (char*)&values_Bmd2_NP1[i], sizeof(double) );//         = Bmd2_NP1->Values();
+BMD.write( (char*)&values_Bmd3_N[i], sizeof(double) );//           = Bmd3_N->Values();
+BMD.write( (char*)&values_Bmd3_NP1[i], sizeof(double) );//         = Bmd3_NP1->Values();
+BMD.write( (char*)&values_Bmd4_N[i], sizeof(double) );//           = Bmd4_N->Values();
+BMD.write( (char*)&values_Bmd4_NP1[i], sizeof(double) );//         = Bmd4_NP1->Values();
+BMD.write( (char*)&values_Bmd5_N[i], sizeof(double) );//           = Bmd5_N->Values();
+BMD.write( (char*)&values_Bmd5_NP1[i], sizeof(double) );//         = Bmd5_NP1->Values();
+BMD.write( (char*)&values_Bmd6_N[i], sizeof(double) );//           = Bmd6_N->Values();
+BMD.write( (char*)&values_Bmd6_NP1[i], sizeof(double) );//         = Bmd6_NP1->Values();
+BMD.write( (char*)&values_Bmd7_N[i], sizeof(double) );//           = Bmd7_N->Values();
+BMD.write( (char*)&values_Bmd7_NP1[i], sizeof(double) );//         = Bmd7_NP1->Values();
+BMD.write( (char*)&values_Bmd8_N[i], sizeof(double) );//           = Bmd8_N->Values();
+BMD.write( (char*)&values_Bmd8_NP1[i], sizeof(double) );//         = Bmd8_NP1->Values();
+BMD.write( (char*)&values_Bmd9_N[i], sizeof(double) );//           = Bmd9_N->Values();
+BMD.write( (char*)&values_Bmd9_NP1[i], sizeof(double) );//         = Bmd9_NP1->Values();
+BMD.write( (char*)&values_Bmd10_N[i], sizeof(double) );//          = Bmd10_N->Values();
+BMD.write( (char*)&values_Bmd10_NP1[i], sizeof(double) );//        = Bmd10_NP1->Values();
+
+BMD.write( (char*)&values_Bmd11_N[i], sizeof(double) );//           = Bmd11_N->Values();
+BMD.write( (char*)&values_Bmd11_NP1[i], sizeof(double) );//         = Bmd11_NP1->Values();
+BMD.write( (char*)&values_Bmd12_N[i], sizeof(double) );//           = Bmd12_N->Values();
+BMD.write( (char*)&values_Bmd12_NP1[i], sizeof(double) );//         = Bmd12_NP1->Values();
+BMD.write( (char*)&values_Bmd13_N[i], sizeof(double) );//           = Bmd13_N->Values();
+BMD.write( (char*)&values_Bmd13_NP1[i], sizeof(double) );//         = Bmd13_NP1->Values();
+BMD.write( (char*)&values_Bmd14_N[i], sizeof(double) );//           = Bmd14_N->Values();
+BMD.write( (char*)&values_Bmd14_NP1[i], sizeof(double) );//         = Bmd14_NP1->Values();
+BMD.write( (char*)&values_Bmd15_N[i], sizeof(double) );//           = Bmd15_N->Values();
+BMD.write( (char*)&values_Bmd15_NP1[i], sizeof(double) );//         = Bmd15_NP1->Values();
+BMD.write( (char*)&values_Bmd16_N[i], sizeof(double) );//           = Bmd16_N->Values();
+BMD.write( (char*)&values_Bmd16_NP1[i], sizeof(double) );//         = Bmd16_NP1->Values();
+BMD.write( (char*)&values_Bmd17_N[i], sizeof(double) );//           = Bmd17_N->Values();
+BMD.write( (char*)&values_Bmd17_NP1[i], sizeof(double) );//         = Bmd17_NP1->Values();
+BMD.write( (char*)&values_Bmd18_N[i], sizeof(double) );//           = Bmd18_N->Values();
+BMD.write( (char*)&values_Bmd18_NP1[i], sizeof(double) );//         = Bmd18_NP1->Values();
+BMD.write( (char*)&values_Bmd19_N[i], sizeof(double) );//           = Bmd19_N->Values();
+BMD.write( (char*)&values_Bmd19_NP1[i], sizeof(double) );//         = Bmd19_NP1->Values();
+BMD.write( (char*)&values_Bmd20_N[i], sizeof(double) );//           = Bmd20_N->Values();
+BMD.write( (char*)&values_Bmd20_NP1[i], sizeof(double) );//         = Bmd20_NP1->Values();
+
+BMD.write( (char*)&values_Bmd21_N[i], sizeof(double) );//           = Bmd21_N->Values();
+BMD.write( (char*)&values_Bmd21_NP1[i], sizeof(double) );//         = Bmd21_NP1->Values();
+BMD.write( (char*)&values_Bmd22_N[i], sizeof(double) );//           = Bmd22_N->Values();
+BMD.write( (char*)&values_Bmd22_NP1[i], sizeof(double) );//         = Bmd22_NP1->Values();
+BMD.write( (char*)&values_Bmd23_N[i], sizeof(double) );//           = Bmd23_N->Values();
+BMD.write( (char*)&values_Bmd23_NP1[i], sizeof(double) );//         = Bmd23_NP1->Values();
+BMD.write( (char*)&values_Bmd24_N[i], sizeof(double) );//           = Bmd24_N->Values();
+BMD.write( (char*)&values_Bmd24_NP1[i], sizeof(double) );//         = Bmd24_NP1->Values();
+BMD.write( (char*)&values_Bmd25_N[i], sizeof(double) );//           = Bmd25_N->Values();
+BMD.write( (char*)&values_Bmd25_NP1[i], sizeof(double) );//         = Bmd25_NP1->Values();
+BMD.write( (char*)&values_Bmd26_N[i], sizeof(double) );//           = Bmd26_N->Values();
+BMD.write( (char*)&values_Bmd26_NP1[i], sizeof(double) );//         = Bmd26_NP1->Values();
+BMD.write( (char*)&values_Bmd27_N[i], sizeof(double) );//           = Bmd27_N->Values();
+BMD.write( (char*)&values_Bmd27_NP1[i], sizeof(double) );//         = Bmd27_NP1->Values();
+BMD.write( (char*)&values_Bmd28_N[i], sizeof(double) );//           = Bmd28_N->Values();
+BMD.write( (char*)&values_Bmd28_NP1[i], sizeof(double) );//         = Bmd28_NP1->Values();
+BMD.write( (char*)&values_Bmd29_N[i], sizeof(double) );//           = Bmd29_N->Values();
+BMD.write( (char*)&values_Bmd29_NP1[i], sizeof(double) );//         = Bmd29_NP1->Values();
+BMD.write( (char*)&values_Bmd30_N[i], sizeof(double) );//          = Bmd30_N->Values();
+BMD.write( (char*)&values_Bmd30_NP1[i], sizeof(double) );//        = Bmd30_NP1->Values();
+
+BMD.write( (char*)&values_Bmd31_N[i], sizeof(double) );//           = Bmd31_N->Values();
+BMD.write( (char*)&values_Bmd31_NP1[i], sizeof(double) );//         = Bmd31_NP1->Values();
+BMD.write( (char*)&values_Bmd32_N[i], sizeof(double) );//           = Bmd32_N->Values();
+BMD.write( (char*)&values_Bmd32_NP1[i], sizeof(double) );//         = Bmd32_NP1->Values();
+BMD.write( (char*)&values_Bmd33_N[i], sizeof(double) );//           = Bmd33_N->Values();
+BMD.write( (char*)&values_Bmd33_NP1[i], sizeof(double) );//         = Bmd33_NP1->Values();
+BMD.write( (char*)&values_Bmd34_N[i], sizeof(double) );//           = Bmd34_N->Values();
+BMD.write( (char*)&values_Bmd34_NP1[i], sizeof(double) );//         = Bmd34_NP1->Values();
+BMD.write( (char*)&values_Bmd35_N[i], sizeof(double) );//           = Bmd35_N->Values();
+BMD.write( (char*)&values_Bmd35_NP1[i], sizeof(double) );//         = Bmd35_NP1->Values();
+BMD.write( (char*)&values_Bmd36_N[i], sizeof(double) );//           = Bmd36_N->Values();
+BMD.write( (char*)&values_Bmd36_NP1[i], sizeof(double) );//         = Bmd36_NP1->Values();
+BMD.write( (char*)&values_Bmd37_N[i], sizeof(double) );//           = Bmd37_N->Values();
+BMD.write( (char*)&values_Bmd37_NP1[i], sizeof(double) );//         = Bmd37_NP1->Values();
+
+IE.write( (char*)&values_weightedDamage[i], sizeof(double) );//       = weightedDamage->Values();
+IE.write( (char*)&values_internalEnergy_N[i], sizeof(double) );//    = internalEnergy_N->Values();
+IE.write( (char*)&values_internalEnergy_NP1[i], sizeof(double) );//  = internalEnergy_NP1->Values();
+IE.write( (char*)&values_inelasticEnergy_N[i], sizeof(double) );//   = inelasticEnergy_N->Values();
+IE.write( (char*)&values_inelasticEnergy_NP1[i], sizeof(double) );// = inelasticEnergy_NP1->Values();
+IE.write( (char*)&values_BinternalEnergy_N[i], sizeof(double) );//   = bondLevelinternalEnergy_N->Values();
+IE.write( (char*)&values_BinternalEnergy_NP1[i], sizeof(double) );// = bondLevelinternalEnergy_NP1->Values();
+IE.write( (char*)&values_BinelasticEnergy_N[i], sizeof(double) );//  = bondLevelInelasticEnergy_N->Values();
+IE.write( (char*)&values_BinelasticEnergy_NP1[i], sizeof(double) );// = bondLevelInelasticEnergy_NP1->Values();
+IE.write( (char*)&values_BweightedDamage[i], sizeof(double) );// = bondLevelInelasticEnergy_NP1->Values();
+
+
+}
+
+
+MS.close();
+MD.close();
+BMS.close();
+BMD.close();
+IE.close();
+
+
+PetscFunctionReturn(ierr);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ReadM7Restarts"
+PetscErrorCode ReadM7Restarts(PARAMETERS *par, ParticleManager &manager, int StepRestart, Teuchos::RCP<PeridigmNS::Peridigm> peridigm, int num_PD_nodes_onRank){
+  PetscFunctionBegin;
+  PetscErrorCode ierr = 0;
+  PetscMPIInt rank, size;
+  ostringstream FILESTREAM;
+  string        FILENAME;
+  MPI_Comm_size(PETSC_COMM_WORLD, &size);
+  MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+
+Teuchos::RCP<Epetra_Vector>
+ms1_N, ms1_NP1,
+ms2_N, ms2_NP1,
+ms3_N, ms3_NP1,
+ms4_N, ms4_NP1,
+ms5_N, ms5_NP1,
+ms6_N, ms6_NP1,
+ms7_N, ms7_NP1,
+ms8_N, ms8_NP1,
+ms9_N, ms9_NP1,
+ms10_N, ms10_NP1,
+ms11_N, ms11_NP1,
+ms12_N, ms12_NP1,
+ms13_N, ms13_NP1,
+ms14_N, ms14_NP1,
+ms15_N, ms15_NP1,
+ms16_N, ms16_NP1,
+ms17_N, ms17_NP1,
+ms18_N, ms18_NP1,
+ms19_N, ms19_NP1,
+ms20_N, ms20_NP1,
+ms21_N, ms21_NP1,
+ms22_N, ms22_NP1,
+ms23_N, ms23_NP1,
+ms24_N, ms24_NP1,
+ms25_N, ms25_NP1,
+ms26_N, ms26_NP1,
+ms27_N, ms27_NP1,
+ms28_N, ms28_NP1,
+ms29_N, ms29_NP1,
+ms30_N, ms30_NP1,
+ms31_N, ms31_NP1,
+ms32_N, ms32_NP1,
+ms33_N, ms33_NP1,
+ms34_N, ms34_NP1,
+ms35_N, ms35_NP1,
+ms36_N, ms36_NP1,
+ms37_N, ms37_NP1,
+ms38_N, ms38_NP1,
+ms39_N, ms39_NP1,
+ms40_N, ms40_NP1,
+ms41_N, ms41_NP1,
+ms42_N, ms42_NP1,
+ms43_N, ms43_NP1,
+ms44_N, ms44_NP1,
+ms45_N, ms45_NP1,
+ms46_N, ms46_NP1,
+ms47_N, ms47_NP1,
+ms48_N, ms48_NP1,
+ms49_N, ms49_NP1,
+ms50_N, ms50_NP1,
+ms51_N, ms51_NP1,
+ms52_N, ms52_NP1,
+ms53_N, ms53_NP1,
+ms54_N, ms54_NP1,
+ms55_N, ms55_NP1,
+ms56_N, ms56_NP1,
+ms57_N, ms57_NP1,
+ms58_N, ms58_NP1,
+ms59_N, ms59_NP1,
+ms60_N, ms60_NP1,
+ms61_N, ms61_NP1,
+ms62_N, ms62_NP1,
+ms63_N, ms63_NP1,
+ms64_N, ms64_NP1,
+ms65_N, ms65_NP1,
+ms66_N, ms66_NP1,
+ms67_N, ms67_NP1,
+ms68_N, ms68_NP1,
+ms69_N, ms69_NP1,
+ms70_N, ms70_NP1,
+ms71_N, ms71_NP1,
+ms72_N, ms72_NP1,
+ms73_N, ms73_NP1,
+ms74_N, ms74_NP1,
+ms75_N, ms75_NP1,
+ms76_N, ms76_NP1,
+ms77_N, ms77_NP1,
+ms78_N, ms78_NP1,
+ms79_N, ms79_NP1,
+ms80_N, ms80_NP1,
+ms81_N, ms81_NP1,
+ms82_N, ms82_NP1,
+ms83_N, ms83_NP1,
+ms84_N, ms84_NP1,
+ms85_N, ms85_NP1,
+ms86_N, ms86_NP1,
+ms87_N, ms87_NP1,
+ms88_N, ms88_NP1,
+ms89_N, ms89_NP1,
+ms90_N, ms90_NP1,
+ms91_N, ms91_NP1,
+ms92_N, ms92_NP1,
+ms93_N, ms93_NP1,
+ms94_N, ms94_NP1,
+ms95_N, ms95_NP1,
+ms96_N, ms96_NP1,
+ms97_N, ms97_NP1,
+ms98_N, ms98_NP1,
+ms99_N, ms99_NP1,
+ms100_N, ms100_NP1,
+ms101_N, ms101_NP1,
+ms102_N, ms102_NP1,
+ms103_N, ms103_NP1,
+ms104_N, ms104_NP1,
+ms105_N, ms105_NP1,
+ms106_N, ms106_NP1,
+ms107_N, ms107_NP1,
+ms108_N, ms108_NP1,
+ms109_N, ms109_NP1,
+ms110_N, ms110_NP1,
+ms111_N, ms111_NP1,
+ms112_N, ms112_NP1,
+ms113_N, ms113_NP1,
+ms114_N, ms114_NP1,
+ms115_N, ms115_NP1,
+ms116_N, ms116_NP1,
+ms117_N, ms117_NP1,
+ms118_N, ms118_NP1,
+ms119_N, ms119_NP1,
+ms120_N, ms120_NP1,
+ms121_N, ms121_NP1,
+ms122_N, ms122_NP1,
+ms123_N, ms123_NP1,
+ms124_N, ms124_NP1,
+ms125_N, ms125_NP1,
+ms126_N, ms126_NP1,
+ms127_N, ms127_NP1,
+ms128_N, ms128_NP1,
+ms129_N, ms129_NP1,
+ms130_N, ms130_NP1,
+ms131_N, ms131_NP1,
+ms132_N, ms132_NP1,
+ms133_N, ms133_NP1,
+ms134_N, ms134_NP1,
+ms135_N, ms135_NP1,
+ms136_N, ms136_NP1,
+ms137_N, ms137_NP1,
+ms138_N, ms138_NP1,
+ms139_N, ms139_NP1,
+ms140_N, ms140_NP1,
+ms141_N, ms141_NP1,
+ms142_N, ms142_NP1,
+ms143_N, ms143_NP1,
+ms144_N, ms144_NP1,
+ms145_N, ms145_NP1,
+ms146_N, ms146_NP1,
+ms147_N, ms147_NP1,
+ms148_N, ms148_NP1,
+ms149_N, ms149_NP1,
+ms150_N, ms150_NP1,
+ms151_N, ms151_NP1,
+ms152_N, ms152_NP1,
+ms153_N, ms153_NP1,
+ms154_N, ms154_NP1,
+ms155_N, ms155_NP1,
+ms156_N, ms156_NP1,
+ms157_N, ms157_NP1,
+ms158_N, ms158_NP1,
+ms159_N, ms159_NP1,
+ms160_N, ms160_NP1,
+ms161_N, ms161_NP1,
+ms162_N, ms162_NP1,
+ms163_N, ms163_NP1,
+ms164_N, ms164_NP1,
+ms165_N, ms165_NP1,
+ms166_N, ms166_NP1,
+ms167_N, ms167_NP1,
+ms168_N, ms168_NP1,
+ms169_N, ms169_NP1,
+ms170_N, ms170_NP1,
+ms171_N, ms171_NP1,
+ms172_N, ms172_NP1,
+ms173_N, ms173_NP1,
+ms174_N, ms174_NP1,
+ms175_N, ms175_NP1,
+ms176_N, ms176_NP1,
+ms177_N, ms177_NP1,
+ms178_N, ms178_NP1,
+ms179_N, ms179_NP1,
+ms180_N, ms180_NP1,
+ms181_N, ms181_NP1,
+ms182_N, ms182_NP1,
+ms183_N, ms183_NP1,
+ms184_N, ms184_NP1,
+ms185_N, ms185_NP1,
+ms186_N, ms186_NP1,
+ms187_N, ms187_NP1,
+ms188_N, ms188_NP1,
+ms189_N, ms189_NP1;
+
+Teuchos::RCP<Epetra_Vector>
+md1_N, md1_NP1,
+md2_N, md2_NP1,
+md3_N, md3_NP1,
+md4_N, md4_NP1,
+md5_N, md5_NP1,
+md6_N, md6_NP1,
+md7_N, md7_NP1,
+md8_N, md8_NP1,
+md9_N, md9_NP1,
+md10_N, md10_NP1,
+md11_N, md11_NP1,
+md12_N, md12_NP1,
+md13_N, md13_NP1,
+md14_N, md14_NP1,
+md15_N, md15_NP1,
+md16_N, md16_NP1,
+md17_N, md17_NP1,
+md18_N, md18_NP1,
+md19_N, md19_NP1,
+md20_N, md20_NP1,
+md21_N, md21_NP1,
+md22_N, md22_NP1,
+md23_N, md23_NP1,
+md24_N, md24_NP1,
+md25_N, md25_NP1,
+md26_N, md26_NP1,
+md27_N, md27_NP1,
+md28_N, md28_NP1,
+md29_N, md29_NP1,
+md30_N, md30_NP1,
+md31_N, md31_NP1,
+md32_N, md32_NP1,
+md33_N, md33_NP1,
+md34_N, md34_NP1,
+md35_N, md35_NP1,
+md36_N, md36_NP1,
+md37_N, md37_NP1;
+
+/////// Bond Level /////////////////
+Teuchos::RCP<Epetra_Vector>
+Bms1_N, Bms1_NP1,
+Bms2_N, Bms2_NP1,
+Bms3_N, Bms3_NP1,
+Bms4_N, Bms4_NP1,
+Bms5_N, Bms5_NP1,
+Bms6_N, Bms6_NP1,
+Bms7_N, Bms7_NP1,
+Bms8_N, Bms8_NP1,
+Bms9_N, Bms9_NP1,
+Bms10_N, Bms10_NP1,
+Bms11_N, Bms11_NP1,
+Bms12_N, Bms12_NP1,
+Bms13_N, Bms13_NP1,
+Bms14_N, Bms14_NP1,
+Bms15_N, Bms15_NP1,
+Bms16_N, Bms16_NP1,
+Bms17_N, Bms17_NP1,
+Bms18_N, Bms18_NP1,
+Bms19_N, Bms19_NP1,
+Bms20_N, Bms20_NP1,
+Bms21_N, Bms21_NP1,
+Bms22_N, Bms22_NP1,
+Bms23_N, Bms23_NP1,
+Bms24_N, Bms24_NP1,
+Bms25_N, Bms25_NP1,
+Bms26_N, Bms26_NP1,
+Bms27_N, Bms27_NP1,
+Bms28_N, Bms28_NP1,
+Bms29_N, Bms29_NP1,
+Bms30_N, Bms30_NP1,
+Bms31_N, Bms31_NP1,
+Bms32_N, Bms32_NP1,
+Bms33_N, Bms33_NP1,
+Bms34_N, Bms34_NP1,
+Bms35_N, Bms35_NP1,
+Bms36_N, Bms36_NP1,
+Bms37_N, Bms37_NP1,
+Bms38_N, Bms38_NP1,
+Bms39_N, Bms39_NP1,
+Bms40_N, Bms40_NP1,
+Bms41_N, Bms41_NP1,
+Bms42_N, Bms42_NP1,
+Bms43_N, Bms43_NP1,
+Bms44_N, Bms44_NP1,
+Bms45_N, Bms45_NP1,
+Bms46_N, Bms46_NP1,
+Bms47_N, Bms47_NP1,
+Bms48_N, Bms48_NP1,
+Bms49_N, Bms49_NP1,
+Bms50_N, Bms50_NP1,
+Bms51_N, Bms51_NP1,
+Bms52_N, Bms52_NP1,
+Bms53_N, Bms53_NP1,
+Bms54_N, Bms54_NP1,
+Bms55_N, Bms55_NP1,
+Bms56_N, Bms56_NP1,
+Bms57_N, Bms57_NP1,
+Bms58_N, Bms58_NP1,
+Bms59_N, Bms59_NP1,
+Bms60_N, Bms60_NP1,
+Bms61_N, Bms61_NP1,
+Bms62_N, Bms62_NP1,
+Bms63_N, Bms63_NP1,
+Bms64_N, Bms64_NP1,
+Bms65_N, Bms65_NP1,
+Bms66_N, Bms66_NP1,
+Bms67_N, Bms67_NP1,
+Bms68_N, Bms68_NP1,
+Bms69_N, Bms69_NP1,
+Bms70_N, Bms70_NP1,
+Bms71_N, Bms71_NP1,
+Bms72_N, Bms72_NP1,
+Bms73_N, Bms73_NP1,
+Bms74_N, Bms74_NP1,
+Bms75_N, Bms75_NP1,
+Bms76_N, Bms76_NP1,
+Bms77_N, Bms77_NP1,
+Bms78_N, Bms78_NP1,
+Bms79_N, Bms79_NP1,
+Bms80_N, Bms80_NP1,
+Bms81_N, Bms81_NP1,
+Bms82_N, Bms82_NP1,
+Bms83_N, Bms83_NP1,
+Bms84_N, Bms84_NP1,
+Bms85_N, Bms85_NP1,
+Bms86_N, Bms86_NP1,
+Bms87_N, Bms87_NP1,
+Bms88_N, Bms88_NP1,
+Bms89_N, Bms89_NP1,
+Bms90_N, Bms90_NP1,
+Bms91_N, Bms91_NP1,
+Bms92_N, Bms92_NP1,
+Bms93_N, Bms93_NP1,
+Bms94_N, Bms94_NP1,
+Bms95_N, Bms95_NP1,
+Bms96_N, Bms96_NP1,
+Bms97_N, Bms97_NP1,
+Bms98_N, Bms98_NP1,
+Bms99_N, Bms99_NP1,
+Bms100_N, Bms100_NP1,
+Bms101_N, Bms101_NP1,
+Bms102_N, Bms102_NP1,
+Bms103_N, Bms103_NP1,
+Bms104_N, Bms104_NP1,
+Bms105_N, Bms105_NP1,
+Bms106_N, Bms106_NP1,
+Bms107_N, Bms107_NP1,
+Bms108_N, Bms108_NP1,
+Bms109_N, Bms109_NP1,
+Bms110_N, Bms110_NP1,
+Bms111_N, Bms111_NP1,
+Bms112_N, Bms112_NP1,
+Bms113_N, Bms113_NP1,
+Bms114_N, Bms114_NP1,
+Bms115_N, Bms115_NP1,
+Bms116_N, Bms116_NP1,
+Bms117_N, Bms117_NP1,
+Bms118_N, Bms118_NP1,
+Bms119_N, Bms119_NP1,
+Bms120_N, Bms120_NP1,
+Bms121_N, Bms121_NP1,
+Bms122_N, Bms122_NP1,
+Bms123_N, Bms123_NP1,
+Bms124_N, Bms124_NP1,
+Bms125_N, Bms125_NP1,
+Bms126_N, Bms126_NP1,
+Bms127_N, Bms127_NP1,
+Bms128_N, Bms128_NP1,
+Bms129_N, Bms129_NP1,
+Bms130_N, Bms130_NP1,
+Bms131_N, Bms131_NP1,
+Bms132_N, Bms132_NP1,
+Bms133_N, Bms133_NP1,
+Bms134_N, Bms134_NP1,
+Bms135_N, Bms135_NP1,
+Bms136_N, Bms136_NP1,
+Bms137_N, Bms137_NP1,
+Bms138_N, Bms138_NP1,
+Bms139_N, Bms139_NP1,
+Bms140_N, Bms140_NP1,
+Bms141_N, Bms141_NP1,
+Bms142_N, Bms142_NP1,
+Bms143_N, Bms143_NP1,
+Bms144_N, Bms144_NP1,
+Bms145_N, Bms145_NP1,
+Bms146_N, Bms146_NP1,
+Bms147_N, Bms147_NP1,
+Bms148_N, Bms148_NP1,
+Bms149_N, Bms149_NP1,
+Bms150_N, Bms150_NP1,
+Bms151_N, Bms151_NP1,
+Bms152_N, Bms152_NP1,
+Bms153_N, Bms153_NP1,
+Bms154_N, Bms154_NP1,
+Bms155_N, Bms155_NP1,
+Bms156_N, Bms156_NP1,
+Bms157_N, Bms157_NP1,
+Bms158_N, Bms158_NP1,
+Bms159_N, Bms159_NP1,
+Bms160_N, Bms160_NP1,
+Bms161_N, Bms161_NP1,
+Bms162_N, Bms162_NP1,
+Bms163_N, Bms163_NP1,
+Bms164_N, Bms164_NP1,
+Bms165_N, Bms165_NP1,
+Bms166_N, Bms166_NP1,
+Bms167_N, Bms167_NP1,
+Bms168_N, Bms168_NP1,
+Bms169_N, Bms169_NP1,
+Bms170_N, Bms170_NP1,
+Bms171_N, Bms171_NP1,
+Bms172_N, Bms172_NP1,
+Bms173_N, Bms173_NP1,
+Bms174_N, Bms174_NP1,
+Bms175_N, Bms175_NP1,
+Bms176_N, Bms176_NP1,
+Bms177_N, Bms177_NP1,
+Bms178_N, Bms178_NP1,
+Bms179_N, Bms179_NP1,
+Bms180_N, Bms180_NP1,
+Bms181_N, Bms181_NP1,
+Bms182_N, Bms182_NP1,
+Bms183_N, Bms183_NP1,
+Bms184_N, Bms184_NP1,
+Bms185_N, Bms185_NP1,
+Bms186_N, Bms186_NP1,
+Bms187_N, Bms187_NP1,
+Bms188_N, Bms188_NP1,
+Bms189_N, Bms189_NP1;
+
+Teuchos::RCP<Epetra_Vector>
+Bmd1_N, Bmd1_NP1,
+Bmd2_N, Bmd2_NP1,
+Bmd3_N, Bmd3_NP1,
+Bmd4_N, Bmd4_NP1,
+Bmd5_N, Bmd5_NP1,
+Bmd6_N, Bmd6_NP1,
+Bmd7_N, Bmd7_NP1,
+Bmd8_N, Bmd8_NP1,
+Bmd9_N, Bmd9_NP1,
+Bmd10_N, Bmd10_NP1,
+Bmd11_N, Bmd11_NP1,
+Bmd12_N, Bmd12_NP1,
+Bmd13_N, Bmd13_NP1,
+Bmd14_N, Bmd14_NP1,
+Bmd15_N, Bmd15_NP1,
+Bmd16_N, Bmd16_NP1,
+Bmd17_N, Bmd17_NP1,
+Bmd18_N, Bmd18_NP1,
+Bmd19_N, Bmd19_NP1,
+Bmd20_N, Bmd20_NP1,
+Bmd21_N, Bmd21_NP1,
+Bmd22_N, Bmd22_NP1,
+Bmd23_N, Bmd23_NP1,
+Bmd24_N, Bmd24_NP1,
+Bmd25_N, Bmd25_NP1,
+Bmd26_N, Bmd26_NP1,
+Bmd27_N, Bmd27_NP1,
+Bmd28_N, Bmd28_NP1,
+Bmd29_N, Bmd29_NP1,
+Bmd30_N, Bmd30_NP1,
+Bmd31_N, Bmd31_NP1,
+Bmd32_N, Bmd32_NP1,
+Bmd33_N, Bmd33_NP1,
+Bmd34_N, Bmd34_NP1,
+Bmd35_N, Bmd35_NP1,
+Bmd36_N, Bmd36_NP1,
+Bmd37_N, Bmd37_NP1;
+
+Teuchos::RCP<Epetra_Vector> weightedDamage,  // Element
+internalEnergy_N, internalEnergy_NP1, // Element
+inelasticEnergy_N, inelasticEnergy_NP1, // Element
+BinternalEnergy_N, BinternalEnergy_NP1, // Bond
+BinelasticEnergy_N, BinelasticEnergy_NP1, // Bond
+BweightedDamage; // Bond
+
+  FILESTREAM << "PeridigmRestarts/RestartElementMicrostates." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream MS;
+  MS.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartElementDamage." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream MD;
+  MD.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartBondMicrostates." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream BMS;
+  BMS.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartBondDamage." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream BMD;
+  BMD.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartInternalEnergy." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream IE;
+  IE.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+
+  // Block iterator loop
+  Teuchos::RCP< std::vector<PeridigmNS::Block> > blocks = peridigm->getBlocks();
+  for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+    std::string blockName = blockIt->getName();
+    Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+
+    int m_microState1FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_1");
+    int m_microState2FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_2");
+    int m_microState3FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_3");
+    int m_microState4FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_4");
+    int m_microState5FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_5");
+    int m_microState6FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_6");
+    int m_microState7FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_7");
+    int m_microState8FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_8");
+    int m_microState9FieldId   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_9");
+    int m_microState10FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_10");
+    int m_microState11FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_11");
+    int m_microState12FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_12");
+    int m_microState13FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_13");
+    int m_microState14FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_14");
+    int m_microState15FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_15");
+    int m_microState16FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_16");
+    int m_microState17FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_17");
+    int m_microState18FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_18");
+    int m_microState19FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_19");
+    int m_microState20FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_20");
+    int m_microState21FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_21");
+    int m_microState22FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_22");
+    int m_microState23FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_23");
+    int m_microState24FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_24");
+    int m_microState25FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_25");
+    int m_microState26FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_26");
+    int m_microState27FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_27");
+    int m_microState28FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_28");
+    int m_microState29FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_29");
+    int m_microState30FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_30");
+    int m_microState31FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_31");
+    int m_microState32FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_32");
+    int m_microState33FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_33");
+    int m_microState34FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_34");
+    int m_microState35FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_35");
+    int m_microState36FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_36");
+    int m_microState37FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_37");
+    int m_microState38FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_38");
+    int m_microState39FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_39");
+    int m_microState40FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_40");
+    int m_microState41FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_41");
+    int m_microState42FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_42");
+    int m_microState43FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_43");
+    int m_microState44FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_44");
+    int m_microState45FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_45");
+    int m_microState46FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_46");
+    int m_microState47FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_47");
+    int m_microState48FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_48");
+    int m_microState49FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_49");
+    int m_microState50FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_50");
+    int m_microState51FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_51");
+    int m_microState52FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_52");
+    int m_microState53FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_53");
+    int m_microState54FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_54");
+    int m_microState55FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_55");
+    int m_microState56FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_56");
+    int m_microState57FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_57");
+    int m_microState58FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_58");
+    int m_microState59FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_59");
+    int m_microState60FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_60");
+    int m_microState61FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_61");
+    int m_microState62FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_62");
+    int m_microState63FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_63");
+    int m_microState64FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_64");
+    int m_microState65FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_65");
+    int m_microState66FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_66");
+    int m_microState67FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_67");
+    int m_microState68FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_68");
+    int m_microState69FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_69");
+    int m_microState70FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_70");
+    int m_microState71FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_71");
+    int m_microState72FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_72");
+    int m_microState73FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_73");
+    int m_microState74FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_74");
+    int m_microState75FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_75");
+    int m_microState76FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_76");
+    int m_microState77FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_77");
+    int m_microState78FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_78");
+    int m_microState79FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_79");
+    int m_microState80FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_80");
+    int m_microState81FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_81");
+    int m_microState82FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_82");
+    int m_microState83FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_83");
+    int m_microState84FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_84");
+    int m_microState85FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_85");
+    int m_microState86FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_86");
+    int m_microState87FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_87");
+    int m_microState88FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_88");
+    int m_microState89FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_89");
+    int m_microState90FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_90");
+    int m_microState91FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_91");
+    int m_microState92FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_92");
+    int m_microState93FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_93");
+    int m_microState94FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_94");
+    int m_microState95FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_95");
+    int m_microState96FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_96");
+    int m_microState97FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_97");
+    int m_microState98FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_98");
+    int m_microState99FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_99");
+    int m_microState100FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_100");
+    int m_microState101FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_101");
+    int m_microState102FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_102");
+    int m_microState103FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_103");
+    int m_microState104FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_104");
+    int m_microState105FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_105");
+    int m_microState106FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_106");
+    int m_microState107FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_107");
+    int m_microState108FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_108");
+    int m_microState109FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_109");
+    int m_microState110FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_110");
+    int m_microState111FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_111");
+    int m_microState112FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_112");
+    int m_microState113FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_113");
+    int m_microState114FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_114");
+    int m_microState115FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_115");
+    int m_microState116FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_116");
+    int m_microState117FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_117");
+    int m_microState118FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_118");
+    int m_microState119FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_119");
+    int m_microState120FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_120");
+    int m_microState121FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_121");
+    int m_microState122FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_122");
+    int m_microState123FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_123");
+    int m_microState124FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_124");
+    int m_microState125FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_125");
+    int m_microState126FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_126");
+    int m_microState127FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_127");
+    int m_microState128FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_128");
+    int m_microState129FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_129");
+    int m_microState130FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_130");
+    int m_microState131FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_131");
+    int m_microState132FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_132");
+    int m_microState133FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_133");
+    int m_microState134FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_134");
+    int m_microState135FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_135");
+    int m_microState136FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_136");
+    int m_microState137FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_137");
+    int m_microState138FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_138");
+    int m_microState139FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_139");
+    int m_microState140FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_140");
+    int m_microState141FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_141");
+    int m_microState142FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_142");
+    int m_microState143FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_143");
+    int m_microState144FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_144");
+    int m_microState145FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_145");
+    int m_microState146FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_146");
+    int m_microState147FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_147");
+    int m_microState148FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_148");
+    int m_microState149FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_149");
+    int m_microState150FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_150");
+    int m_microState151FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_151");
+    int m_microState152FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_152");
+    int m_microState153FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_153");
+    int m_microState154FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_154");
+    int m_microState155FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_155");
+    int m_microState156FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_156");
+    int m_microState157FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_157");
+    int m_microState158FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_158");
+    int m_microState159FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_159");
+    int m_microState160FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_160");
+    int m_microState161FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_161");
+    int m_microState162FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_162");
+    int m_microState163FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_163");
+    int m_microState164FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_164");
+    int m_microState165FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_165");
+    int m_microState166FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_166");
+    int m_microState167FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_167");
+    int m_microState168FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_168");
+    int m_microState169FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_169");
+    int m_microState170FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_170");
+    int m_microState171FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_171");
+    int m_microState172FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_172");
+    int m_microState173FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_173");
+    int m_microState174FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_174");
+    int m_microState175FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_175");
+    int m_microState176FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_176");
+    int m_microState177FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_177");
+    int m_microState178FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_178");
+    int m_microState179FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_179");
+    int m_microState180FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_180");
+    int m_microState181FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_181");
+    int m_microState182FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_182");
+    int m_microState183FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_183");
+    int m_microState184FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_184");
+    int m_microState185FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_185");
+    int m_microState186FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_186");
+    int m_microState187FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_187");
+    int m_microState188FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_188");
+    int m_microState189FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_State_189");
+
+    int m_microDamage1FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_1");
+    int m_microDamage2FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_2");
+    int m_microDamage3FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_3");
+    int m_microDamage4FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_4");
+    int m_microDamage5FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_5");
+    int m_microDamage6FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_6");
+    int m_microDamage7FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_7");
+    int m_microDamage8FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_8");
+    int m_microDamage9FieldId  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_9");
+    int m_microDamage10FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_10");
+    int m_microDamage11FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_11");
+    int m_microDamage12FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_12");
+    int m_microDamage13FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_13");
+    int m_microDamage14FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_14");
+    int m_microDamage15FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_15");
+    int m_microDamage16FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_16");
+    int m_microDamage17FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_17");
+    int m_microDamage18FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_18");
+    int m_microDamage19FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_19");
+    int m_microDamage20FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_20");
+    int m_microDamage21FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_21");
+    int m_microDamage22FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_22");
+    int m_microDamage23FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_23");
+    int m_microDamage24FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_24");
+    int m_microDamage25FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_25");
+    int m_microDamage26FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_26");
+    int m_microDamage27FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_27");
+    int m_microDamage28FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_28");
+    int m_microDamage29FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_29");
+    int m_microDamage30FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_30");
+    int m_microDamage31FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_31");
+    int m_microDamage32FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_32");
+    int m_microDamage33FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_33");
+    int m_microDamage34FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_34");
+    int m_microDamage35FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_35");
+    int m_microDamage36FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_36");
+    int m_microDamage37FieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Micro_Damage_37");
+
+
+    // Bond Level Quantities
+
+    int m_bondLevelMicroState1FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_1");
+    int m_bondLevelMicroState2FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_2");
+    int m_bondLevelMicroState3FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_3");
+    int m_bondLevelMicroState4FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_4");
+    int m_bondLevelMicroState5FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_5");
+    int m_bondLevelMicroState6FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_6");
+    int m_bondLevelMicroState7FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_7");
+    int m_bondLevelMicroState8FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_8");
+    int m_bondLevelMicroState9FieldId   = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_9");
+    int m_bondLevelMicroState10FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_10");
+    int m_bondLevelMicroState11FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_11");
+    int m_bondLevelMicroState12FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_12");
+    int m_bondLevelMicroState13FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_13");
+    int m_bondLevelMicroState14FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_14");
+    int m_bondLevelMicroState15FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_15");
+    int m_bondLevelMicroState16FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_16");
+    int m_bondLevelMicroState17FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_17");
+    int m_bondLevelMicroState18FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_18");
+    int m_bondLevelMicroState19FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_19");
+    int m_bondLevelMicroState20FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_20");
+    int m_bondLevelMicroState21FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_21");
+    int m_bondLevelMicroState22FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_22");
+    int m_bondLevelMicroState23FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_23");
+    int m_bondLevelMicroState24FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_24");
+    int m_bondLevelMicroState25FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_25");
+    int m_bondLevelMicroState26FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_26");
+    int m_bondLevelMicroState27FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_27");
+    int m_bondLevelMicroState28FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_28");
+    int m_bondLevelMicroState29FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_29");
+    int m_bondLevelMicroState30FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_30");
+    int m_bondLevelMicroState31FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_31");
+    int m_bondLevelMicroState32FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_32");
+    int m_bondLevelMicroState33FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_33");
+    int m_bondLevelMicroState34FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_34");
+    int m_bondLevelMicroState35FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_35");
+    int m_bondLevelMicroState36FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_36");
+    int m_bondLevelMicroState37FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_37");
+    int m_bondLevelMicroState38FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_38");
+    int m_bondLevelMicroState39FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_39");
+    int m_bondLevelMicroState40FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_40");
+    int m_bondLevelMicroState41FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_41");
+    int m_bondLevelMicroState42FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_42");
+    int m_bondLevelMicroState43FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_43");
+    int m_bondLevelMicroState44FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_44");
+    int m_bondLevelMicroState45FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_45");
+    int m_bondLevelMicroState46FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_46");
+    int m_bondLevelMicroState47FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_47");
+    int m_bondLevelMicroState48FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_48");
+    int m_bondLevelMicroState49FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_49");
+    int m_bondLevelMicroState50FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_50");
+    int m_bondLevelMicroState51FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_51");
+    int m_bondLevelMicroState52FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_52");
+    int m_bondLevelMicroState53FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_53");
+    int m_bondLevelMicroState54FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_54");
+    int m_bondLevelMicroState55FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_55");
+    int m_bondLevelMicroState56FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_56");
+    int m_bondLevelMicroState57FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_57");
+    int m_bondLevelMicroState58FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_58");
+    int m_bondLevelMicroState59FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_59");
+    int m_bondLevelMicroState60FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_60");
+    int m_bondLevelMicroState61FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_61");
+    int m_bondLevelMicroState62FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_62");
+    int m_bondLevelMicroState63FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_63");
+    int m_bondLevelMicroState64FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_64");
+    int m_bondLevelMicroState65FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_65");
+    int m_bondLevelMicroState66FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_66");
+    int m_bondLevelMicroState67FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_67");
+    int m_bondLevelMicroState68FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_68");
+    int m_bondLevelMicroState69FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_69");
+    int m_bondLevelMicroState70FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_70");
+    int m_bondLevelMicroState71FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_71");
+    int m_bondLevelMicroState72FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_72");
+    int m_bondLevelMicroState73FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_73");
+    int m_bondLevelMicroState74FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_74");
+    int m_bondLevelMicroState75FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_75");
+    int m_bondLevelMicroState76FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_76");
+    int m_bondLevelMicroState77FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_77");
+    int m_bondLevelMicroState78FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_78");
+    int m_bondLevelMicroState79FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_79");
+    int m_bondLevelMicroState80FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_80");
+    int m_bondLevelMicroState81FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_81");
+    int m_bondLevelMicroState82FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_82");
+    int m_bondLevelMicroState83FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_83");
+    int m_bondLevelMicroState84FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_84");
+    int m_bondLevelMicroState85FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_85");
+    int m_bondLevelMicroState86FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_86");
+    int m_bondLevelMicroState87FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_87");
+    int m_bondLevelMicroState88FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_88");
+    int m_bondLevelMicroState89FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_89");
+    int m_bondLevelMicroState90FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_90");
+    int m_bondLevelMicroState91FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_91");
+    int m_bondLevelMicroState92FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_92");
+    int m_bondLevelMicroState93FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_93");
+    int m_bondLevelMicroState94FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_94");
+    int m_bondLevelMicroState95FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_95");
+    int m_bondLevelMicroState96FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_96");
+    int m_bondLevelMicroState97FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_97");
+    int m_bondLevelMicroState98FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_98");
+    int m_bondLevelMicroState99FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_99");
+    int m_bondLevelMicroState100FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_100");
+    int m_bondLevelMicroState101FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_101");
+    int m_bondLevelMicroState102FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_102");
+    int m_bondLevelMicroState103FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_103");
+    int m_bondLevelMicroState104FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_104");
+    int m_bondLevelMicroState105FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_105");
+    int m_bondLevelMicroState106FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_106");
+    int m_bondLevelMicroState107FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_107");
+    int m_bondLevelMicroState108FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_108");
+    int m_bondLevelMicroState109FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_109");
+    int m_bondLevelMicroState110FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_110");
+    int m_bondLevelMicroState111FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_111");
+    int m_bondLevelMicroState112FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_112");
+    int m_bondLevelMicroState113FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_113");
+    int m_bondLevelMicroState114FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_114");
+    int m_bondLevelMicroState115FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_115");
+    int m_bondLevelMicroState116FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_116");
+    int m_bondLevelMicroState117FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_117");
+    int m_bondLevelMicroState118FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_118");
+    int m_bondLevelMicroState119FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_119");
+    int m_bondLevelMicroState120FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_120");
+    int m_bondLevelMicroState121FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_121");
+    int m_bondLevelMicroState122FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_122");
+    int m_bondLevelMicroState123FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_123");
+    int m_bondLevelMicroState124FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_124");
+    int m_bondLevelMicroState125FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_125");
+    int m_bondLevelMicroState126FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_126");
+    int m_bondLevelMicroState127FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_127");
+    int m_bondLevelMicroState128FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_128");
+    int m_bondLevelMicroState129FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_129");
+    int m_bondLevelMicroState130FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_130");
+    int m_bondLevelMicroState131FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_131");
+    int m_bondLevelMicroState132FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_132");
+    int m_bondLevelMicroState133FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_133");
+    int m_bondLevelMicroState134FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_134");
+    int m_bondLevelMicroState135FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_135");
+    int m_bondLevelMicroState136FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_136");
+    int m_bondLevelMicroState137FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_137");
+    int m_bondLevelMicroState138FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_138");
+    int m_bondLevelMicroState139FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_139");
+    int m_bondLevelMicroState140FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_140");
+    int m_bondLevelMicroState141FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_141");
+    int m_bondLevelMicroState142FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_142");
+    int m_bondLevelMicroState143FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_143");
+    int m_bondLevelMicroState144FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_144");
+    int m_bondLevelMicroState145FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_145");
+    int m_bondLevelMicroState146FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_146");
+    int m_bondLevelMicroState147FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_147");
+    int m_bondLevelMicroState148FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_148");
+    int m_bondLevelMicroState149FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_149");
+    int m_bondLevelMicroState150FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_150");
+    int m_bondLevelMicroState151FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_151");
+    int m_bondLevelMicroState152FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_152");
+    int m_bondLevelMicroState153FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_153");
+    int m_bondLevelMicroState154FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_154");
+    int m_bondLevelMicroState155FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_155");
+    int m_bondLevelMicroState156FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_156");
+    int m_bondLevelMicroState157FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_157");
+    int m_bondLevelMicroState158FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_158");
+    int m_bondLevelMicroState159FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_159");
+    int m_bondLevelMicroState160FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_160");
+    int m_bondLevelMicroState161FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_161");
+    int m_bondLevelMicroState162FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_162");
+    int m_bondLevelMicroState163FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_163");
+    int m_bondLevelMicroState164FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_164");
+    int m_bondLevelMicroState165FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_165");
+    int m_bondLevelMicroState166FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_166");
+    int m_bondLevelMicroState167FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_167");
+    int m_bondLevelMicroState168FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_168");
+    int m_bondLevelMicroState169FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_169");
+    int m_bondLevelMicroState170FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_170");
+    int m_bondLevelMicroState171FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_171");
+    int m_bondLevelMicroState172FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_172");
+    int m_bondLevelMicroState173FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_173");
+    int m_bondLevelMicroState174FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_174");
+    int m_bondLevelMicroState175FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_175");
+    int m_bondLevelMicroState176FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_176");
+    int m_bondLevelMicroState177FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_177");
+    int m_bondLevelMicroState178FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_178");
+    int m_bondLevelMicroState179FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_179");
+    int m_bondLevelMicroState180FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_180");
+    int m_bondLevelMicroState181FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_181");
+    int m_bondLevelMicroState182FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_182");
+    int m_bondLevelMicroState183FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_183");
+    int m_bondLevelMicroState184FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_184");
+    int m_bondLevelMicroState185FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_185");
+    int m_bondLevelMicroState186FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_186");
+    int m_bondLevelMicroState187FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_187");
+    int m_bondLevelMicroState188FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_188");
+    int m_bondLevelMicroState189FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_State_189");
+
+    int m_bondLevelMicroDamage1FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_1");
+    int m_bondLevelMicroDamage2FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_2");
+    int m_bondLevelMicroDamage3FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_3");
+    int m_bondLevelMicroDamage4FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_4");
+    int m_bondLevelMicroDamage5FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_5");
+    int m_bondLevelMicroDamage6FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_6");
+    int m_bondLevelMicroDamage7FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_7");
+    int m_bondLevelMicroDamage8FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_8");
+    int m_bondLevelMicroDamage9FieldId  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_9");
+    int m_bondLevelMicroDamage10FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_10");
+    int m_bondLevelMicroDamage11FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_11");
+    int m_bondLevelMicroDamage12FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_12");
+    int m_bondLevelMicroDamage13FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_13");
+    int m_bondLevelMicroDamage14FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_14");
+    int m_bondLevelMicroDamage15FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_15");
+    int m_bondLevelMicroDamage16FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_16");
+    int m_bondLevelMicroDamage17FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_17");
+    int m_bondLevelMicroDamage18FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_18");
+    int m_bondLevelMicroDamage19FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_19");
+    int m_bondLevelMicroDamage20FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_20");
+    int m_bondLevelMicroDamage21FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_21");
+    int m_bondLevelMicroDamage22FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_22");
+    int m_bondLevelMicroDamage23FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_23");
+    int m_bondLevelMicroDamage24FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_24");
+    int m_bondLevelMicroDamage25FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_25");
+    int m_bondLevelMicroDamage26FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_26");
+    int m_bondLevelMicroDamage27FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_27");
+    int m_bondLevelMicroDamage28FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_28");
+    int m_bondLevelMicroDamage29FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_29");
+    int m_bondLevelMicroDamage30FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_30");
+    int m_bondLevelMicroDamage31FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_31");
+    int m_bondLevelMicroDamage32FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_32");
+    int m_bondLevelMicroDamage33FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_33");
+    int m_bondLevelMicroDamage34FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_34");
+    int m_bondLevelMicroDamage35FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_35");
+    int m_bondLevelMicroDamage36FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_36");
+    int m_bondLevelMicroDamage37FieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Micro_Damage_37");
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    int m_weightedDamageFieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Weighted_Damage");
+    int m_internalEnergyFieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Internal_Energy");
+    int m_inelasticEnergyFieldId = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Inelastic_Energy");
+    int m_bondLevelinternalEnergyFieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Internal_Energy");
+    int m_bondLevelInelasticEnergyFieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Inelastic_Energy");
+    int m_bondLevelWeightedDamageFieldId = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Bond_Weighted_Damage");
+
+    /// Getting data from data manager
+    ms1_N            = blockIt->getData( m_microState1FieldId                , PeridigmField::STEP_N);
+    ms1_NP1          = blockIt->getData( m_microState1FieldId                , PeridigmField::STEP_NP1);
+    ms2_N            = blockIt->getData( m_microState2FieldId                , PeridigmField::STEP_N);
+    ms2_NP1          = blockIt->getData( m_microState2FieldId                , PeridigmField::STEP_NP1);
+    ms3_N            = blockIt->getData( m_microState3FieldId                , PeridigmField::STEP_N);
+    ms3_NP1          = blockIt->getData( m_microState3FieldId                , PeridigmField::STEP_NP1);
+    ms4_N            = blockIt->getData( m_microState4FieldId                , PeridigmField::STEP_N);
+    ms4_NP1          = blockIt->getData( m_microState4FieldId                , PeridigmField::STEP_NP1);
+    ms5_N            = blockIt->getData( m_microState5FieldId                , PeridigmField::STEP_N);
+    ms5_NP1          = blockIt->getData( m_microState5FieldId                , PeridigmField::STEP_NP1);
+    ms6_N            = blockIt->getData( m_microState6FieldId                , PeridigmField::STEP_N);
+    ms6_NP1          = blockIt->getData( m_microState6FieldId                , PeridigmField::STEP_NP1);
+    ms7_N            = blockIt->getData( m_microState7FieldId                , PeridigmField::STEP_N);
+    ms7_NP1          = blockIt->getData( m_microState7FieldId                , PeridigmField::STEP_NP1);
+    ms8_N            = blockIt->getData( m_microState8FieldId                , PeridigmField::STEP_N);
+    ms8_NP1          = blockIt->getData( m_microState8FieldId                , PeridigmField::STEP_NP1);
+    ms9_N            = blockIt->getData( m_microState9FieldId                , PeridigmField::STEP_N);
+    ms9_NP1          = blockIt->getData( m_microState9FieldId                , PeridigmField::STEP_NP1);
+    ms10_N           = blockIt->getData( m_microState10FieldId                , PeridigmField::STEP_N);
+    ms10_NP1         = blockIt->getData( m_microState10FieldId                , PeridigmField::STEP_NP1);
+
+    ms11_N            = blockIt->getData( m_microState11FieldId                , PeridigmField::STEP_N);
+    ms11_NP1          = blockIt->getData( m_microState11FieldId                , PeridigmField::STEP_NP1);
+    ms12_N            = blockIt->getData( m_microState12FieldId                , PeridigmField::STEP_N);
+    ms12_NP1          = blockIt->getData( m_microState12FieldId                , PeridigmField::STEP_NP1);
+    ms13_N            = blockIt->getData( m_microState13FieldId                , PeridigmField::STEP_N);
+    ms13_NP1          = blockIt->getData( m_microState13FieldId                , PeridigmField::STEP_NP1);
+    ms14_N            = blockIt->getData( m_microState14FieldId                , PeridigmField::STEP_N);
+    ms14_NP1          = blockIt->getData( m_microState14FieldId                , PeridigmField::STEP_NP1);
+    ms15_N            = blockIt->getData( m_microState15FieldId                , PeridigmField::STEP_N);
+    ms15_NP1          = blockIt->getData( m_microState15FieldId                , PeridigmField::STEP_NP1);
+    ms16_N            = blockIt->getData( m_microState16FieldId                , PeridigmField::STEP_N);
+    ms16_NP1          = blockIt->getData( m_microState16FieldId                , PeridigmField::STEP_NP1);
+    ms17_N            = blockIt->getData( m_microState17FieldId                , PeridigmField::STEP_N);
+    ms17_NP1          = blockIt->getData( m_microState17FieldId                , PeridigmField::STEP_NP1);
+    ms18_N            = blockIt->getData( m_microState18FieldId                , PeridigmField::STEP_N);
+    ms18_NP1          = blockIt->getData( m_microState18FieldId                , PeridigmField::STEP_NP1);
+    ms19_N            = blockIt->getData( m_microState19FieldId                , PeridigmField::STEP_N);
+    ms19_NP1          = blockIt->getData( m_microState19FieldId                , PeridigmField::STEP_NP1);
+    ms20_N           = blockIt->getData( m_microState20FieldId                , PeridigmField::STEP_N);
+    ms20_NP1         = blockIt->getData( m_microState20FieldId                , PeridigmField::STEP_NP1);
+
+    ms21_N            = blockIt->getData( m_microState21FieldId                , PeridigmField::STEP_N);
+    ms21_NP1          = blockIt->getData( m_microState21FieldId                , PeridigmField::STEP_NP1);
+    ms22_N            = blockIt->getData( m_microState22FieldId                , PeridigmField::STEP_N);
+    ms22_NP1          = blockIt->getData( m_microState22FieldId                , PeridigmField::STEP_NP1);
+    ms23_N            = blockIt->getData( m_microState23FieldId                , PeridigmField::STEP_N);
+    ms23_NP1          = blockIt->getData( m_microState23FieldId                , PeridigmField::STEP_NP1);
+    ms24_N            = blockIt->getData( m_microState24FieldId                , PeridigmField::STEP_N);
+    ms24_NP1          = blockIt->getData( m_microState24FieldId                , PeridigmField::STEP_NP1);
+    ms25_N            = blockIt->getData( m_microState25FieldId                , PeridigmField::STEP_N);
+    ms25_NP1          = blockIt->getData( m_microState25FieldId                , PeridigmField::STEP_NP1);
+    ms26_N            = blockIt->getData( m_microState26FieldId                , PeridigmField::STEP_N);
+    ms26_NP1          = blockIt->getData( m_microState26FieldId                , PeridigmField::STEP_NP1);
+    ms27_N            = blockIt->getData( m_microState27FieldId                , PeridigmField::STEP_N);
+    ms27_NP1          = blockIt->getData( m_microState27FieldId                , PeridigmField::STEP_NP1);
+    ms28_N            = blockIt->getData( m_microState28FieldId                , PeridigmField::STEP_N);
+    ms28_NP1          = blockIt->getData( m_microState28FieldId                , PeridigmField::STEP_NP1);
+    ms29_N            = blockIt->getData( m_microState29FieldId                , PeridigmField::STEP_N);
+    ms29_NP1          = blockIt->getData( m_microState29FieldId                , PeridigmField::STEP_NP1);
+    ms30_N           = blockIt->getData( m_microState30FieldId                , PeridigmField::STEP_N);
+    ms30_NP1         = blockIt->getData( m_microState30FieldId                , PeridigmField::STEP_NP1);
+
+    ms31_N            = blockIt->getData( m_microState31FieldId                , PeridigmField::STEP_N);
+    ms31_NP1          = blockIt->getData( m_microState31FieldId                , PeridigmField::STEP_NP1);
+    ms32_N            = blockIt->getData( m_microState32FieldId                , PeridigmField::STEP_N);
+    ms32_NP1          = blockIt->getData( m_microState32FieldId                , PeridigmField::STEP_NP1);
+    ms33_N            = blockIt->getData( m_microState33FieldId                , PeridigmField::STEP_N);
+    ms33_NP1          = blockIt->getData( m_microState33FieldId                , PeridigmField::STEP_NP1);
+    ms34_N            = blockIt->getData( m_microState34FieldId                , PeridigmField::STEP_N);
+    ms34_NP1          = blockIt->getData( m_microState34FieldId                , PeridigmField::STEP_NP1);
+    ms35_N            = blockIt->getData( m_microState35FieldId                , PeridigmField::STEP_N);
+    ms35_NP1          = blockIt->getData( m_microState35FieldId                , PeridigmField::STEP_NP1);
+    ms36_N            = blockIt->getData( m_microState36FieldId                , PeridigmField::STEP_N);
+    ms36_NP1          = blockIt->getData( m_microState36FieldId                , PeridigmField::STEP_NP1);
+    ms37_N            = blockIt->getData( m_microState37FieldId                , PeridigmField::STEP_N);
+    ms37_NP1          = blockIt->getData( m_microState37FieldId                , PeridigmField::STEP_NP1);
+    ms38_N            = blockIt->getData( m_microState38FieldId                , PeridigmField::STEP_N);
+    ms38_NP1          = blockIt->getData( m_microState38FieldId                , PeridigmField::STEP_NP1);
+    ms39_N            = blockIt->getData( m_microState39FieldId                , PeridigmField::STEP_N);
+    ms39_NP1          = blockIt->getData( m_microState39FieldId                , PeridigmField::STEP_NP1);
+    ms40_N           = blockIt->getData( m_microState40FieldId                , PeridigmField::STEP_N);
+    ms40_NP1         = blockIt->getData( m_microState40FieldId                , PeridigmField::STEP_NP1);
+
+    ms41_N            = blockIt->getData( m_microState41FieldId                , PeridigmField::STEP_N);
+    ms41_NP1          = blockIt->getData( m_microState41FieldId                , PeridigmField::STEP_NP1);
+    ms42_N            = blockIt->getData( m_microState42FieldId                , PeridigmField::STEP_N);
+    ms42_NP1          = blockIt->getData( m_microState42FieldId                , PeridigmField::STEP_NP1);
+    ms43_N            = blockIt->getData( m_microState43FieldId                , PeridigmField::STEP_N);
+    ms43_NP1          = blockIt->getData( m_microState43FieldId                , PeridigmField::STEP_NP1);
+    ms44_N            = blockIt->getData( m_microState44FieldId                , PeridigmField::STEP_N);
+    ms44_NP1          = blockIt->getData( m_microState44FieldId                , PeridigmField::STEP_NP1);
+    ms45_N            = blockIt->getData( m_microState45FieldId                , PeridigmField::STEP_N);
+    ms45_NP1          = blockIt->getData( m_microState45FieldId                , PeridigmField::STEP_NP1);
+    ms46_N            = blockIt->getData( m_microState46FieldId                , PeridigmField::STEP_N);
+    ms46_NP1          = blockIt->getData( m_microState46FieldId                , PeridigmField::STEP_NP1);
+    ms47_N            = blockIt->getData( m_microState47FieldId                , PeridigmField::STEP_N);
+    ms47_NP1          = blockIt->getData( m_microState47FieldId                , PeridigmField::STEP_NP1);
+    ms48_N            = blockIt->getData( m_microState48FieldId                , PeridigmField::STEP_N);
+    ms48_NP1          = blockIt->getData( m_microState48FieldId                , PeridigmField::STEP_NP1);
+    ms49_N            = blockIt->getData( m_microState49FieldId                , PeridigmField::STEP_N);
+    ms49_NP1          = blockIt->getData( m_microState49FieldId                , PeridigmField::STEP_NP1);
+    ms50_N           = blockIt->getData( m_microState50FieldId                , PeridigmField::STEP_N);
+    ms50_NP1         = blockIt->getData( m_microState50FieldId                , PeridigmField::STEP_NP1);
+
+    ms51_N            = blockIt->getData( m_microState51FieldId                , PeridigmField::STEP_N);
+    ms51_NP1          = blockIt->getData( m_microState51FieldId                , PeridigmField::STEP_NP1);
+    ms52_N            = blockIt->getData( m_microState52FieldId                , PeridigmField::STEP_N);
+    ms52_NP1          = blockIt->getData( m_microState52FieldId                , PeridigmField::STEP_NP1);
+    ms53_N            = blockIt->getData( m_microState53FieldId                , PeridigmField::STEP_N);
+    ms53_NP1          = blockIt->getData( m_microState53FieldId                , PeridigmField::STEP_NP1);
+    ms54_N            = blockIt->getData( m_microState54FieldId                , PeridigmField::STEP_N);
+    ms54_NP1          = blockIt->getData( m_microState54FieldId                , PeridigmField::STEP_NP1);
+    ms55_N            = blockIt->getData( m_microState55FieldId                , PeridigmField::STEP_N);
+    ms55_NP1          = blockIt->getData( m_microState55FieldId                , PeridigmField::STEP_NP1);
+    ms56_N            = blockIt->getData( m_microState56FieldId                , PeridigmField::STEP_N);
+    ms56_NP1          = blockIt->getData( m_microState56FieldId                , PeridigmField::STEP_NP1);
+    ms57_N            = blockIt->getData( m_microState57FieldId                , PeridigmField::STEP_N);
+    ms57_NP1          = blockIt->getData( m_microState57FieldId                , PeridigmField::STEP_NP1);
+    ms58_N            = blockIt->getData( m_microState58FieldId                , PeridigmField::STEP_N);
+    ms58_NP1          = blockIt->getData( m_microState58FieldId                , PeridigmField::STEP_NP1);
+    ms59_N            = blockIt->getData( m_microState59FieldId                , PeridigmField::STEP_N);
+    ms59_NP1          = blockIt->getData( m_microState59FieldId                , PeridigmField::STEP_NP1);
+    ms60_N            = blockIt->getData( m_microState60FieldId                , PeridigmField::STEP_N);
+    ms60_NP1          = blockIt->getData( m_microState60FieldId                , PeridigmField::STEP_NP1);
+
+    ms61_N            = blockIt->getData( m_microState61FieldId                , PeridigmField::STEP_N);
+    ms61_NP1          = blockIt->getData( m_microState61FieldId                , PeridigmField::STEP_NP1);
+    ms62_N            = blockIt->getData( m_microState62FieldId                , PeridigmField::STEP_N);
+    ms62_NP1          = blockIt->getData( m_microState62FieldId                , PeridigmField::STEP_NP1);
+    ms63_N            = blockIt->getData( m_microState63FieldId                , PeridigmField::STEP_N);
+    ms63_NP1          = blockIt->getData( m_microState63FieldId                , PeridigmField::STEP_NP1);
+    ms64_N            = blockIt->getData( m_microState64FieldId                , PeridigmField::STEP_N);
+    ms64_NP1          = blockIt->getData( m_microState64FieldId                , PeridigmField::STEP_NP1);
+    ms65_N            = blockIt->getData( m_microState65FieldId                , PeridigmField::STEP_N);
+    ms65_NP1          = blockIt->getData( m_microState65FieldId                , PeridigmField::STEP_NP1);
+    ms66_N            = blockIt->getData( m_microState66FieldId                , PeridigmField::STEP_N);
+    ms66_NP1          = blockIt->getData( m_microState66FieldId                , PeridigmField::STEP_NP1);
+    ms67_N            = blockIt->getData( m_microState67FieldId                , PeridigmField::STEP_N);
+    ms67_NP1          = blockIt->getData( m_microState67FieldId                , PeridigmField::STEP_NP1);
+    ms68_N            = blockIt->getData( m_microState68FieldId                , PeridigmField::STEP_N);
+    ms68_NP1          = blockIt->getData( m_microState68FieldId                , PeridigmField::STEP_NP1);
+    ms69_N            = blockIt->getData( m_microState69FieldId                , PeridigmField::STEP_N);
+    ms69_NP1          = blockIt->getData( m_microState69FieldId                , PeridigmField::STEP_NP1);
+    ms70_N            = blockIt->getData( m_microState70FieldId                , PeridigmField::STEP_N);
+    ms70_NP1          = blockIt->getData( m_microState70FieldId                , PeridigmField::STEP_NP1);
+
+    ms71_N            = blockIt->getData( m_microState71FieldId                , PeridigmField::STEP_N);
+    ms71_NP1          = blockIt->getData( m_microState71FieldId                , PeridigmField::STEP_NP1);
+    ms72_N            = blockIt->getData( m_microState72FieldId                , PeridigmField::STEP_N);
+    ms72_NP1          = blockIt->getData( m_microState72FieldId                , PeridigmField::STEP_NP1);
+    ms73_N            = blockIt->getData( m_microState73FieldId                , PeridigmField::STEP_N);
+    ms73_NP1          = blockIt->getData( m_microState73FieldId                , PeridigmField::STEP_NP1);
+    ms74_N            = blockIt->getData( m_microState74FieldId                , PeridigmField::STEP_N);
+    ms74_NP1          = blockIt->getData( m_microState74FieldId                , PeridigmField::STEP_NP1);
+    ms75_N            = blockIt->getData( m_microState75FieldId                , PeridigmField::STEP_N);
+    ms75_NP1          = blockIt->getData( m_microState75FieldId                , PeridigmField::STEP_NP1);
+    ms76_N            = blockIt->getData( m_microState76FieldId                , PeridigmField::STEP_N);
+    ms76_NP1          = blockIt->getData( m_microState76FieldId                , PeridigmField::STEP_NP1);
+    ms77_N            = blockIt->getData( m_microState77FieldId                , PeridigmField::STEP_N);
+    ms77_NP1          = blockIt->getData( m_microState77FieldId                , PeridigmField::STEP_NP1);
+    ms78_N            = blockIt->getData( m_microState78FieldId                , PeridigmField::STEP_N);
+    ms78_NP1          = blockIt->getData( m_microState78FieldId                , PeridigmField::STEP_NP1);
+    ms79_N            = blockIt->getData( m_microState79FieldId                , PeridigmField::STEP_N);
+    ms79_NP1          = blockIt->getData( m_microState79FieldId                , PeridigmField::STEP_NP1);
+    ms80_N            = blockIt->getData( m_microState80FieldId                , PeridigmField::STEP_N);
+    ms80_NP1          = blockIt->getData( m_microState80FieldId                , PeridigmField::STEP_NP1);
+
+    ms81_N            = blockIt->getData( m_microState81FieldId                , PeridigmField::STEP_N);
+    ms81_NP1          = blockIt->getData( m_microState81FieldId                , PeridigmField::STEP_NP1);
+    ms82_N            = blockIt->getData( m_microState82FieldId                , PeridigmField::STEP_N);
+    ms82_NP1          = blockIt->getData( m_microState82FieldId                , PeridigmField::STEP_NP1);
+    ms83_N            = blockIt->getData( m_microState83FieldId                , PeridigmField::STEP_N);
+    ms83_NP1          = blockIt->getData( m_microState83FieldId                , PeridigmField::STEP_NP1);
+    ms84_N            = blockIt->getData( m_microState84FieldId                , PeridigmField::STEP_N);
+    ms84_NP1          = blockIt->getData( m_microState84FieldId                , PeridigmField::STEP_NP1);
+    ms85_N            = blockIt->getData( m_microState85FieldId                , PeridigmField::STEP_N);
+    ms85_NP1          = blockIt->getData( m_microState85FieldId                , PeridigmField::STEP_NP1);
+    ms86_N            = blockIt->getData( m_microState86FieldId                , PeridigmField::STEP_N);
+    ms86_NP1          = blockIt->getData( m_microState86FieldId                , PeridigmField::STEP_NP1);
+    ms87_N            = blockIt->getData( m_microState87FieldId                , PeridigmField::STEP_N);
+    ms87_NP1          = blockIt->getData( m_microState87FieldId                , PeridigmField::STEP_NP1);
+    ms88_N            = blockIt->getData( m_microState88FieldId                , PeridigmField::STEP_N);
+    ms88_NP1          = blockIt->getData( m_microState88FieldId                , PeridigmField::STEP_NP1);
+    ms89_N            = blockIt->getData( m_microState89FieldId                , PeridigmField::STEP_N);
+    ms89_NP1          = blockIt->getData( m_microState89FieldId                , PeridigmField::STEP_NP1);
+    ms90_N            = blockIt->getData( m_microState90FieldId                , PeridigmField::STEP_N);
+    ms90_NP1          = blockIt->getData( m_microState90FieldId                , PeridigmField::STEP_NP1);
+
+    ms91_N            = blockIt->getData( m_microState91FieldId                , PeridigmField::STEP_N);
+    ms91_NP1          = blockIt->getData( m_microState91FieldId                , PeridigmField::STEP_NP1);
+    ms92_N            = blockIt->getData( m_microState92FieldId                , PeridigmField::STEP_N);
+    ms92_NP1          = blockIt->getData( m_microState92FieldId                , PeridigmField::STEP_NP1);
+    ms93_N            = blockIt->getData( m_microState93FieldId                , PeridigmField::STEP_N);
+    ms93_NP1          = blockIt->getData( m_microState93FieldId                , PeridigmField::STEP_NP1);
+    ms94_N            = blockIt->getData( m_microState94FieldId                , PeridigmField::STEP_N);
+    ms94_NP1          = blockIt->getData( m_microState94FieldId                , PeridigmField::STEP_NP1);
+    ms95_N            = blockIt->getData( m_microState95FieldId                , PeridigmField::STEP_N);
+    ms95_NP1          = blockIt->getData( m_microState95FieldId                , PeridigmField::STEP_NP1);
+    ms96_N            = blockIt->getData( m_microState96FieldId                , PeridigmField::STEP_N);
+    ms96_NP1          = blockIt->getData( m_microState96FieldId                , PeridigmField::STEP_NP1);
+    ms97_N            = blockIt->getData( m_microState97FieldId                , PeridigmField::STEP_N);
+    ms97_NP1          = blockIt->getData( m_microState97FieldId                , PeridigmField::STEP_NP1);
+    ms98_N            = blockIt->getData( m_microState98FieldId                , PeridigmField::STEP_N);
+    ms98_NP1          = blockIt->getData( m_microState98FieldId                , PeridigmField::STEP_NP1);
+    ms99_N            = blockIt->getData( m_microState99FieldId                , PeridigmField::STEP_N);
+    ms99_NP1          = blockIt->getData( m_microState99FieldId                , PeridigmField::STEP_NP1);
+    ms100_N            = blockIt->getData( m_microState100FieldId                , PeridigmField::STEP_N);
+    ms100_NP1          = blockIt->getData( m_microState100FieldId                , PeridigmField::STEP_NP1);
+
+
+    ms101_N            = blockIt->getData( m_microState101FieldId                , PeridigmField::STEP_N);
+    ms101_NP1          = blockIt->getData( m_microState101FieldId                , PeridigmField::STEP_NP1);
+    ms102_N            = blockIt->getData( m_microState102FieldId                , PeridigmField::STEP_N);
+    ms102_NP1          = blockIt->getData( m_microState102FieldId                , PeridigmField::STEP_NP1);
+    ms103_N            = blockIt->getData( m_microState103FieldId                , PeridigmField::STEP_N);
+    ms103_NP1          = blockIt->getData( m_microState103FieldId                , PeridigmField::STEP_NP1);
+    ms104_N            = blockIt->getData( m_microState104FieldId                , PeridigmField::STEP_N);
+    ms104_NP1          = blockIt->getData( m_microState104FieldId                , PeridigmField::STEP_NP1);
+    ms105_N            = blockIt->getData( m_microState105FieldId                , PeridigmField::STEP_N);
+    ms105_NP1          = blockIt->getData( m_microState105FieldId                , PeridigmField::STEP_NP1);
+    ms106_N            = blockIt->getData( m_microState106FieldId                , PeridigmField::STEP_N);
+    ms106_NP1          = blockIt->getData( m_microState106FieldId                , PeridigmField::STEP_NP1);
+    ms107_N            = blockIt->getData( m_microState107FieldId                , PeridigmField::STEP_N);
+    ms107_NP1          = blockIt->getData( m_microState107FieldId                , PeridigmField::STEP_NP1);
+    ms108_N            = blockIt->getData( m_microState108FieldId                , PeridigmField::STEP_N);
+    ms108_NP1          = blockIt->getData( m_microState108FieldId                , PeridigmField::STEP_NP1);
+    ms109_N            = blockIt->getData( m_microState109FieldId                , PeridigmField::STEP_N);
+    ms109_NP1          = blockIt->getData( m_microState109FieldId                , PeridigmField::STEP_NP1);
+    ms110_N           = blockIt->getData( m_microState110FieldId                , PeridigmField::STEP_N);
+    ms110_NP1         = blockIt->getData( m_microState110FieldId                , PeridigmField::STEP_NP1);
+
+    ms111_N            = blockIt->getData( m_microState111FieldId                , PeridigmField::STEP_N);
+    ms111_NP1          = blockIt->getData( m_microState111FieldId                , PeridigmField::STEP_NP1);
+    ms112_N            = blockIt->getData( m_microState112FieldId                , PeridigmField::STEP_N);
+    ms112_NP1          = blockIt->getData( m_microState112FieldId                , PeridigmField::STEP_NP1);
+    ms113_N            = blockIt->getData( m_microState113FieldId                , PeridigmField::STEP_N);
+    ms113_NP1          = blockIt->getData( m_microState113FieldId                , PeridigmField::STEP_NP1);
+    ms114_N            = blockIt->getData( m_microState114FieldId                , PeridigmField::STEP_N);
+    ms114_NP1          = blockIt->getData( m_microState114FieldId                , PeridigmField::STEP_NP1);
+    ms115_N            = blockIt->getData( m_microState115FieldId                , PeridigmField::STEP_N);
+    ms115_NP1          = blockIt->getData( m_microState115FieldId                , PeridigmField::STEP_NP1);
+    ms116_N            = blockIt->getData( m_microState116FieldId                , PeridigmField::STEP_N);
+    ms116_NP1          = blockIt->getData( m_microState116FieldId                , PeridigmField::STEP_NP1);
+    ms117_N            = blockIt->getData( m_microState117FieldId                , PeridigmField::STEP_N);
+    ms117_NP1          = blockIt->getData( m_microState117FieldId                , PeridigmField::STEP_NP1);
+    ms118_N            = blockIt->getData( m_microState118FieldId                , PeridigmField::STEP_N);
+    ms118_NP1          = blockIt->getData( m_microState118FieldId                , PeridigmField::STEP_NP1);
+    ms119_N            = blockIt->getData( m_microState119FieldId                , PeridigmField::STEP_N);
+    ms119_NP1          = blockIt->getData( m_microState119FieldId                , PeridigmField::STEP_NP1);
+    ms120_N           = blockIt->getData( m_microState120FieldId                , PeridigmField::STEP_N);
+    ms120_NP1         = blockIt->getData( m_microState120FieldId                , PeridigmField::STEP_NP1);
+
+    ms121_N            = blockIt->getData( m_microState121FieldId                , PeridigmField::STEP_N);
+    ms121_NP1          = blockIt->getData( m_microState121FieldId                , PeridigmField::STEP_NP1);
+    ms122_N            = blockIt->getData( m_microState122FieldId                , PeridigmField::STEP_N);
+    ms122_NP1          = blockIt->getData( m_microState122FieldId                , PeridigmField::STEP_NP1);
+    ms123_N            = blockIt->getData( m_microState123FieldId                , PeridigmField::STEP_N);
+    ms123_NP1          = blockIt->getData( m_microState123FieldId                , PeridigmField::STEP_NP1);
+    ms124_N            = blockIt->getData( m_microState124FieldId                , PeridigmField::STEP_N);
+    ms124_NP1          = blockIt->getData( m_microState124FieldId                , PeridigmField::STEP_NP1);
+    ms125_N            = blockIt->getData( m_microState125FieldId                , PeridigmField::STEP_N);
+    ms125_NP1          = blockIt->getData( m_microState125FieldId                , PeridigmField::STEP_NP1);
+    ms126_N            = blockIt->getData( m_microState126FieldId                , PeridigmField::STEP_N);
+    ms126_NP1          = blockIt->getData( m_microState126FieldId                , PeridigmField::STEP_NP1);
+    ms127_N            = blockIt->getData( m_microState127FieldId                , PeridigmField::STEP_N);
+    ms127_NP1          = blockIt->getData( m_microState127FieldId                , PeridigmField::STEP_NP1);
+    ms128_N            = blockIt->getData( m_microState128FieldId                , PeridigmField::STEP_N);
+    ms128_NP1          = blockIt->getData( m_microState128FieldId                , PeridigmField::STEP_NP1);
+    ms129_N            = blockIt->getData( m_microState129FieldId                , PeridigmField::STEP_N);
+    ms129_NP1          = blockIt->getData( m_microState129FieldId                , PeridigmField::STEP_NP1);
+    ms130_N           = blockIt->getData( m_microState130FieldId                , PeridigmField::STEP_N);
+    ms130_NP1         = blockIt->getData( m_microState130FieldId                , PeridigmField::STEP_NP1);
+
+    ms131_N            = blockIt->getData( m_microState131FieldId                , PeridigmField::STEP_N);
+    ms131_NP1          = blockIt->getData( m_microState131FieldId                , PeridigmField::STEP_NP1);
+    ms132_N            = blockIt->getData( m_microState132FieldId                , PeridigmField::STEP_N);
+    ms132_NP1          = blockIt->getData( m_microState132FieldId                , PeridigmField::STEP_NP1);
+    ms133_N            = blockIt->getData( m_microState133FieldId                , PeridigmField::STEP_N);
+    ms133_NP1          = blockIt->getData( m_microState133FieldId                , PeridigmField::STEP_NP1);
+    ms134_N            = blockIt->getData( m_microState134FieldId                , PeridigmField::STEP_N);
+    ms134_NP1          = blockIt->getData( m_microState134FieldId                , PeridigmField::STEP_NP1);
+    ms135_N            = blockIt->getData( m_microState135FieldId                , PeridigmField::STEP_N);
+    ms135_NP1          = blockIt->getData( m_microState135FieldId                , PeridigmField::STEP_NP1);
+    ms136_N            = blockIt->getData( m_microState136FieldId                , PeridigmField::STEP_N);
+    ms136_NP1          = blockIt->getData( m_microState136FieldId                , PeridigmField::STEP_NP1);
+    ms137_N            = blockIt->getData( m_microState137FieldId                , PeridigmField::STEP_N);
+    ms137_NP1          = blockIt->getData( m_microState137FieldId                , PeridigmField::STEP_NP1);
+    ms138_N            = blockIt->getData( m_microState138FieldId                , PeridigmField::STEP_N);
+    ms138_NP1          = blockIt->getData( m_microState138FieldId                , PeridigmField::STEP_NP1);
+    ms139_N            = blockIt->getData( m_microState139FieldId                , PeridigmField::STEP_N);
+    ms139_NP1          = blockIt->getData( m_microState139FieldId                , PeridigmField::STEP_NP1);
+    ms140_N           = blockIt->getData( m_microState140FieldId                , PeridigmField::STEP_N);
+    ms140_NP1         = blockIt->getData( m_microState140FieldId                , PeridigmField::STEP_NP1);
+
+    ms141_N            = blockIt->getData( m_microState141FieldId                , PeridigmField::STEP_N);
+    ms141_NP1          = blockIt->getData( m_microState141FieldId                , PeridigmField::STEP_NP1);
+    ms142_N            = blockIt->getData( m_microState142FieldId                , PeridigmField::STEP_N);
+    ms142_NP1          = blockIt->getData( m_microState142FieldId                , PeridigmField::STEP_NP1);
+    ms143_N            = blockIt->getData( m_microState143FieldId                , PeridigmField::STEP_N);
+    ms143_NP1          = blockIt->getData( m_microState143FieldId                , PeridigmField::STEP_NP1);
+    ms144_N            = blockIt->getData( m_microState144FieldId                , PeridigmField::STEP_N);
+    ms144_NP1          = blockIt->getData( m_microState144FieldId                , PeridigmField::STEP_NP1);
+    ms145_N            = blockIt->getData( m_microState145FieldId                , PeridigmField::STEP_N);
+    ms145_NP1          = blockIt->getData( m_microState145FieldId                , PeridigmField::STEP_NP1);
+    ms146_N            = blockIt->getData( m_microState146FieldId                , PeridigmField::STEP_N);
+    ms146_NP1          = blockIt->getData( m_microState146FieldId                , PeridigmField::STEP_NP1);
+    ms147_N            = blockIt->getData( m_microState147FieldId                , PeridigmField::STEP_N);
+    ms147_NP1          = blockIt->getData( m_microState147FieldId                , PeridigmField::STEP_NP1);
+    ms148_N            = blockIt->getData( m_microState148FieldId                , PeridigmField::STEP_N);
+    ms148_NP1          = blockIt->getData( m_microState148FieldId                , PeridigmField::STEP_NP1);
+    ms149_N            = blockIt->getData( m_microState149FieldId                , PeridigmField::STEP_N);
+    ms149_NP1          = blockIt->getData( m_microState149FieldId                , PeridigmField::STEP_NP1);
+    ms150_N           = blockIt->getData( m_microState150FieldId                , PeridigmField::STEP_N);
+    ms150_NP1         = blockIt->getData( m_microState150FieldId                , PeridigmField::STEP_NP1);
+
+    ms151_N            = blockIt->getData( m_microState151FieldId                , PeridigmField::STEP_N);
+    ms151_NP1          = blockIt->getData( m_microState151FieldId                , PeridigmField::STEP_NP1);
+    ms152_N            = blockIt->getData( m_microState152FieldId                , PeridigmField::STEP_N);
+    ms152_NP1          = blockIt->getData( m_microState152FieldId                , PeridigmField::STEP_NP1);
+    ms153_N            = blockIt->getData( m_microState153FieldId                , PeridigmField::STEP_N);
+    ms153_NP1          = blockIt->getData( m_microState153FieldId                , PeridigmField::STEP_NP1);
+    ms154_N            = blockIt->getData( m_microState154FieldId                , PeridigmField::STEP_N);
+    ms154_NP1          = blockIt->getData( m_microState154FieldId                , PeridigmField::STEP_NP1);
+    ms155_N            = blockIt->getData( m_microState155FieldId                , PeridigmField::STEP_N);
+    ms155_NP1          = blockIt->getData( m_microState155FieldId                , PeridigmField::STEP_NP1);
+    ms156_N            = blockIt->getData( m_microState156FieldId                , PeridigmField::STEP_N);
+    ms156_NP1          = blockIt->getData( m_microState156FieldId                , PeridigmField::STEP_NP1);
+    ms157_N            = blockIt->getData( m_microState157FieldId                , PeridigmField::STEP_N);
+    ms157_NP1          = blockIt->getData( m_microState157FieldId                , PeridigmField::STEP_NP1);
+    ms158_N            = blockIt->getData( m_microState158FieldId                , PeridigmField::STEP_N);
+    ms158_NP1          = blockIt->getData( m_microState158FieldId                , PeridigmField::STEP_NP1);
+    ms159_N            = blockIt->getData( m_microState159FieldId                , PeridigmField::STEP_N);
+    ms159_NP1          = blockIt->getData( m_microState159FieldId                , PeridigmField::STEP_NP1);
+    ms160_N            = blockIt->getData( m_microState160FieldId                , PeridigmField::STEP_N);
+    ms160_NP1          = blockIt->getData( m_microState160FieldId                , PeridigmField::STEP_NP1);
+
+    ms161_N            = blockIt->getData( m_microState161FieldId                , PeridigmField::STEP_N);
+    ms161_NP1          = blockIt->getData( m_microState161FieldId                , PeridigmField::STEP_NP1);
+    ms162_N            = blockIt->getData( m_microState162FieldId                , PeridigmField::STEP_N);
+    ms162_NP1          = blockIt->getData( m_microState162FieldId                , PeridigmField::STEP_NP1);
+    ms163_N            = blockIt->getData( m_microState163FieldId                , PeridigmField::STEP_N);
+    ms163_NP1          = blockIt->getData( m_microState163FieldId                , PeridigmField::STEP_NP1);
+    ms164_N            = blockIt->getData( m_microState164FieldId                , PeridigmField::STEP_N);
+    ms164_NP1          = blockIt->getData( m_microState164FieldId                , PeridigmField::STEP_NP1);
+    ms165_N            = blockIt->getData( m_microState165FieldId                , PeridigmField::STEP_N);
+    ms165_NP1          = blockIt->getData( m_microState165FieldId                , PeridigmField::STEP_NP1);
+    ms166_N            = blockIt->getData( m_microState166FieldId                , PeridigmField::STEP_N);
+    ms166_NP1          = blockIt->getData( m_microState166FieldId                , PeridigmField::STEP_NP1);
+    ms167_N            = blockIt->getData( m_microState167FieldId                , PeridigmField::STEP_N);
+    ms167_NP1          = blockIt->getData( m_microState167FieldId                , PeridigmField::STEP_NP1);
+    ms168_N            = blockIt->getData( m_microState168FieldId                , PeridigmField::STEP_N);
+    ms168_NP1          = blockIt->getData( m_microState168FieldId                , PeridigmField::STEP_NP1);
+    ms169_N            = blockIt->getData( m_microState169FieldId                , PeridigmField::STEP_N);
+    ms169_NP1          = blockIt->getData( m_microState169FieldId                , PeridigmField::STEP_NP1);
+    ms170_N            = blockIt->getData( m_microState170FieldId                , PeridigmField::STEP_N);
+    ms170_NP1          = blockIt->getData( m_microState170FieldId                , PeridigmField::STEP_NP1);
+
+    ms171_N            = blockIt->getData( m_microState171FieldId                , PeridigmField::STEP_N);
+    ms171_NP1          = blockIt->getData( m_microState171FieldId                , PeridigmField::STEP_NP1);
+    ms172_N            = blockIt->getData( m_microState172FieldId                , PeridigmField::STEP_N);
+    ms172_NP1          = blockIt->getData( m_microState172FieldId                , PeridigmField::STEP_NP1);
+    ms173_N            = blockIt->getData( m_microState173FieldId                , PeridigmField::STEP_N);
+    ms173_NP1          = blockIt->getData( m_microState173FieldId                , PeridigmField::STEP_NP1);
+    ms174_N            = blockIt->getData( m_microState174FieldId                , PeridigmField::STEP_N);
+    ms174_NP1          = blockIt->getData( m_microState174FieldId                , PeridigmField::STEP_NP1);
+    ms175_N            = blockIt->getData( m_microState175FieldId                , PeridigmField::STEP_N);
+    ms175_NP1          = blockIt->getData( m_microState175FieldId                , PeridigmField::STEP_NP1);
+    ms176_N            = blockIt->getData( m_microState176FieldId                , PeridigmField::STEP_N);
+    ms176_NP1          = blockIt->getData( m_microState176FieldId                , PeridigmField::STEP_NP1);
+    ms177_N            = blockIt->getData( m_microState177FieldId                , PeridigmField::STEP_N);
+    ms177_NP1          = blockIt->getData( m_microState177FieldId                , PeridigmField::STEP_NP1);
+    ms178_N            = blockIt->getData( m_microState178FieldId                , PeridigmField::STEP_N);
+    ms178_NP1          = blockIt->getData( m_microState178FieldId                , PeridigmField::STEP_NP1);
+    ms179_N            = blockIt->getData( m_microState179FieldId                , PeridigmField::STEP_N);
+    ms179_NP1          = blockIt->getData( m_microState179FieldId                , PeridigmField::STEP_NP1);
+    ms180_N            = blockIt->getData( m_microState180FieldId                , PeridigmField::STEP_N);
+    ms180_NP1          = blockIt->getData( m_microState180FieldId                , PeridigmField::STEP_NP1);
+
+    ms181_N            = blockIt->getData( m_microState181FieldId                , PeridigmField::STEP_N);
+    ms181_NP1          = blockIt->getData( m_microState181FieldId                , PeridigmField::STEP_NP1);
+    ms182_N            = blockIt->getData( m_microState182FieldId                , PeridigmField::STEP_N);
+    ms182_NP1          = blockIt->getData( m_microState182FieldId                , PeridigmField::STEP_NP1);
+    ms183_N            = blockIt->getData( m_microState183FieldId                , PeridigmField::STEP_N);
+    ms183_NP1          = blockIt->getData( m_microState183FieldId                , PeridigmField::STEP_NP1);
+    ms184_N            = blockIt->getData( m_microState184FieldId                , PeridigmField::STEP_N);
+    ms184_NP1          = blockIt->getData( m_microState184FieldId                , PeridigmField::STEP_NP1);
+    ms185_N            = blockIt->getData( m_microState185FieldId                , PeridigmField::STEP_N);
+    ms185_NP1          = blockIt->getData( m_microState185FieldId                , PeridigmField::STEP_NP1);
+    ms186_N            = blockIt->getData( m_microState186FieldId                , PeridigmField::STEP_N);
+    ms186_NP1          = blockIt->getData( m_microState186FieldId                , PeridigmField::STEP_NP1);
+    ms187_N            = blockIt->getData( m_microState187FieldId                , PeridigmField::STEP_N);
+    ms187_NP1          = blockIt->getData( m_microState187FieldId                , PeridigmField::STEP_NP1);
+    ms188_N            = blockIt->getData( m_microState188FieldId                , PeridigmField::STEP_N);
+    ms188_NP1          = blockIt->getData( m_microState188FieldId                , PeridigmField::STEP_NP1);
+    ms189_N            = blockIt->getData( m_microState189FieldId                , PeridigmField::STEP_N);
+    ms189_NP1          = blockIt->getData( m_microState189FieldId                , PeridigmField::STEP_NP1);
+
+    // Micro Damage
+
+md1_N            = blockIt->getData( m_microDamage1FieldId                , PeridigmField::STEP_N);
+md1_NP1          = blockIt->getData( m_microDamage1FieldId                , PeridigmField::STEP_NP1);
+md2_N            = blockIt->getData( m_microDamage2FieldId                , PeridigmField::STEP_N);
+md2_NP1          = blockIt->getData( m_microDamage2FieldId                , PeridigmField::STEP_NP1);
+md3_N            = blockIt->getData( m_microDamage3FieldId                , PeridigmField::STEP_N);
+md3_NP1          = blockIt->getData( m_microDamage3FieldId                , PeridigmField::STEP_NP1);
+md4_N            = blockIt->getData( m_microDamage4FieldId                , PeridigmField::STEP_N);
+md4_NP1          = blockIt->getData( m_microDamage4FieldId                , PeridigmField::STEP_NP1);
+md5_N            = blockIt->getData( m_microDamage5FieldId                , PeridigmField::STEP_N);
+md5_NP1          = blockIt->getData( m_microDamage5FieldId                , PeridigmField::STEP_NP1);
+md6_N            = blockIt->getData( m_microDamage6FieldId                , PeridigmField::STEP_N);
+md6_NP1          = blockIt->getData( m_microDamage6FieldId                , PeridigmField::STEP_NP1);
+md7_N            = blockIt->getData( m_microDamage7FieldId                , PeridigmField::STEP_N);
+md7_NP1          = blockIt->getData( m_microDamage7FieldId                , PeridigmField::STEP_NP1);
+md8_N            = blockIt->getData( m_microDamage8FieldId                , PeridigmField::STEP_N);
+md8_NP1          = blockIt->getData( m_microDamage8FieldId                , PeridigmField::STEP_NP1);
+md9_N            = blockIt->getData( m_microDamage9FieldId                , PeridigmField::STEP_N);
+md9_NP1          = blockIt->getData( m_microDamage9FieldId                , PeridigmField::STEP_NP1);
+md10_N           = blockIt->getData( m_microDamage10FieldId                , PeridigmField::STEP_N);
+md10_NP1         = blockIt->getData( m_microDamage10FieldId                , PeridigmField::STEP_NP1);
+
+md11_N            = blockIt->getData( m_microDamage11FieldId                , PeridigmField::STEP_N);
+md11_NP1          = blockIt->getData( m_microDamage11FieldId                , PeridigmField::STEP_NP1);
+md12_N            = blockIt->getData( m_microDamage12FieldId                , PeridigmField::STEP_N);
+md12_NP1          = blockIt->getData( m_microDamage12FieldId                , PeridigmField::STEP_NP1);
+md13_N            = blockIt->getData( m_microDamage13FieldId                , PeridigmField::STEP_N);
+md13_NP1          = blockIt->getData( m_microDamage13FieldId                , PeridigmField::STEP_NP1);
+md14_N            = blockIt->getData( m_microDamage14FieldId                , PeridigmField::STEP_N);
+md14_NP1          = blockIt->getData( m_microDamage14FieldId                , PeridigmField::STEP_NP1);
+md15_N            = blockIt->getData( m_microDamage15FieldId                , PeridigmField::STEP_N);
+md15_NP1          = blockIt->getData( m_microDamage15FieldId                , PeridigmField::STEP_NP1);
+md16_N            = blockIt->getData( m_microDamage16FieldId                , PeridigmField::STEP_N);
+md16_NP1          = blockIt->getData( m_microDamage16FieldId                , PeridigmField::STEP_NP1);
+md17_N            = blockIt->getData( m_microDamage17FieldId                , PeridigmField::STEP_N);
+md17_NP1          = blockIt->getData( m_microDamage17FieldId                , PeridigmField::STEP_NP1);
+md18_N            = blockIt->getData( m_microDamage18FieldId                , PeridigmField::STEP_N);
+md18_NP1          = blockIt->getData( m_microDamage18FieldId                , PeridigmField::STEP_NP1);
+md19_N            = blockIt->getData( m_microDamage19FieldId                , PeridigmField::STEP_N);
+md19_NP1          = blockIt->getData( m_microDamage19FieldId                , PeridigmField::STEP_NP1);
+md20_N           = blockIt->getData( m_microDamage20FieldId                , PeridigmField::STEP_N);
+md20_NP1         = blockIt->getData( m_microDamage20FieldId                , PeridigmField::STEP_NP1);
+
+md21_N            = blockIt->getData( m_microDamage21FieldId                , PeridigmField::STEP_N);
+md21_NP1          = blockIt->getData( m_microDamage21FieldId                , PeridigmField::STEP_NP1);
+md22_N            = blockIt->getData( m_microDamage22FieldId                , PeridigmField::STEP_N);
+md22_NP1          = blockIt->getData( m_microDamage22FieldId                , PeridigmField::STEP_NP1);
+md23_N            = blockIt->getData( m_microDamage23FieldId                , PeridigmField::STEP_N);
+md23_NP1          = blockIt->getData( m_microDamage23FieldId                , PeridigmField::STEP_NP1);
+md24_N            = blockIt->getData( m_microDamage24FieldId                , PeridigmField::STEP_N);
+md24_NP1          = blockIt->getData( m_microDamage24FieldId                , PeridigmField::STEP_NP1);
+md25_N            = blockIt->getData( m_microDamage25FieldId                , PeridigmField::STEP_N);
+md25_NP1          = blockIt->getData( m_microDamage25FieldId                , PeridigmField::STEP_NP1);
+md26_N            = blockIt->getData( m_microDamage26FieldId                , PeridigmField::STEP_N);
+md26_NP1          = blockIt->getData( m_microDamage26FieldId                , PeridigmField::STEP_NP1);
+md27_N            = blockIt->getData( m_microDamage27FieldId                , PeridigmField::STEP_N);
+md27_NP1          = blockIt->getData( m_microDamage27FieldId                , PeridigmField::STEP_NP1);
+md28_N            = blockIt->getData( m_microDamage28FieldId                , PeridigmField::STEP_N);
+md28_NP1          = blockIt->getData( m_microDamage28FieldId                , PeridigmField::STEP_NP1);
+md29_N            = blockIt->getData( m_microDamage29FieldId                , PeridigmField::STEP_N);
+md29_NP1          = blockIt->getData( m_microDamage29FieldId                , PeridigmField::STEP_NP1);
+md30_N           = blockIt->getData( m_microDamage30FieldId                , PeridigmField::STEP_N);
+md30_NP1         = blockIt->getData( m_microDamage30FieldId                , PeridigmField::STEP_NP1);
+
+md31_N            = blockIt->getData( m_microDamage31FieldId                , PeridigmField::STEP_N);
+md31_NP1          = blockIt->getData( m_microDamage31FieldId                , PeridigmField::STEP_NP1);
+md32_N            = blockIt->getData( m_microDamage32FieldId                , PeridigmField::STEP_N);
+md32_NP1          = blockIt->getData( m_microDamage32FieldId                , PeridigmField::STEP_NP1);
+md33_N            = blockIt->getData( m_microDamage33FieldId                , PeridigmField::STEP_N);
+md33_NP1          = blockIt->getData( m_microDamage33FieldId                , PeridigmField::STEP_NP1);
+md34_N            = blockIt->getData( m_microDamage34FieldId                , PeridigmField::STEP_N);
+md34_NP1          = blockIt->getData( m_microDamage34FieldId                , PeridigmField::STEP_NP1);
+md35_N            = blockIt->getData( m_microDamage35FieldId                , PeridigmField::STEP_N);
+md35_NP1          = blockIt->getData( m_microDamage35FieldId                , PeridigmField::STEP_NP1);
+md36_N            = blockIt->getData( m_microDamage36FieldId                , PeridigmField::STEP_N);
+md36_NP1          = blockIt->getData( m_microDamage36FieldId                , PeridigmField::STEP_NP1);
+md37_N            = blockIt->getData( m_microDamage37FieldId                , PeridigmField::STEP_N);
+md37_NP1          = blockIt->getData( m_microDamage37FieldId                , PeridigmField::STEP_NP1);
+
+/////// Bond Level Microstates //////////////////
+    Bms1_N            = blockIt->getData( m_bondLevelMicroState1FieldId       , PeridigmField::STEP_N);
+    Bms1_NP1          = blockIt->getData( m_bondLevelMicroState1FieldId                , PeridigmField::STEP_NP1);
+    Bms2_N            = blockIt->getData( m_bondLevelMicroState2FieldId                , PeridigmField::STEP_N);
+    Bms2_NP1          = blockIt->getData( m_bondLevelMicroState2FieldId                , PeridigmField::STEP_NP1);
+    Bms3_N            = blockIt->getData( m_bondLevelMicroState3FieldId                , PeridigmField::STEP_N);
+    Bms3_NP1          = blockIt->getData( m_bondLevelMicroState3FieldId                , PeridigmField::STEP_NP1);
+    Bms4_N            = blockIt->getData( m_bondLevelMicroState4FieldId                , PeridigmField::STEP_N);
+    Bms4_NP1          = blockIt->getData( m_bondLevelMicroState4FieldId                , PeridigmField::STEP_NP1);
+    Bms5_N            = blockIt->getData( m_bondLevelMicroState5FieldId                , PeridigmField::STEP_N);
+    Bms5_NP1          = blockIt->getData( m_bondLevelMicroState5FieldId                , PeridigmField::STEP_NP1);
+    Bms6_N            = blockIt->getData( m_bondLevelMicroState6FieldId                , PeridigmField::STEP_N);
+    Bms6_NP1          = blockIt->getData( m_bondLevelMicroState6FieldId                , PeridigmField::STEP_NP1);
+    Bms7_N            = blockIt->getData( m_bondLevelMicroState7FieldId                , PeridigmField::STEP_N);
+    Bms7_NP1          = blockIt->getData( m_bondLevelMicroState7FieldId                , PeridigmField::STEP_NP1);
+    Bms8_N            = blockIt->getData( m_bondLevelMicroState8FieldId                , PeridigmField::STEP_N);
+    Bms8_NP1          = blockIt->getData( m_bondLevelMicroState8FieldId                , PeridigmField::STEP_NP1);
+    Bms9_N            = blockIt->getData( m_bondLevelMicroState9FieldId                , PeridigmField::STEP_N);
+    Bms9_NP1          = blockIt->getData( m_bondLevelMicroState9FieldId                , PeridigmField::STEP_NP1);
+    Bms10_N           = blockIt->getData( m_bondLevelMicroState10FieldId                , PeridigmField::STEP_N);
+    Bms10_NP1         = blockIt->getData( m_bondLevelMicroState10FieldId                , PeridigmField::STEP_NP1);
+
+    Bms11_N            = blockIt->getData( m_bondLevelMicroState11FieldId                , PeridigmField::STEP_N);
+    Bms11_NP1          = blockIt->getData( m_bondLevelMicroState11FieldId                , PeridigmField::STEP_NP1);
+    Bms12_N            = blockIt->getData( m_bondLevelMicroState12FieldId                , PeridigmField::STEP_N);
+    Bms12_NP1          = blockIt->getData( m_bondLevelMicroState12FieldId                , PeridigmField::STEP_NP1);
+    Bms13_N            = blockIt->getData( m_bondLevelMicroState13FieldId                , PeridigmField::STEP_N);
+    Bms13_NP1          = blockIt->getData( m_bondLevelMicroState13FieldId                , PeridigmField::STEP_NP1);
+    Bms14_N            = blockIt->getData( m_bondLevelMicroState14FieldId                , PeridigmField::STEP_N);
+    Bms14_NP1          = blockIt->getData( m_bondLevelMicroState14FieldId                , PeridigmField::STEP_NP1);
+    Bms15_N            = blockIt->getData( m_bondLevelMicroState15FieldId                , PeridigmField::STEP_N);
+    Bms15_NP1          = blockIt->getData( m_bondLevelMicroState15FieldId                , PeridigmField::STEP_NP1);
+    Bms16_N            = blockIt->getData( m_bondLevelMicroState16FieldId                , PeridigmField::STEP_N);
+    Bms16_NP1          = blockIt->getData( m_bondLevelMicroState16FieldId                , PeridigmField::STEP_NP1);
+    Bms17_N            = blockIt->getData( m_bondLevelMicroState17FieldId                , PeridigmField::STEP_N);
+    Bms17_NP1          = blockIt->getData( m_bondLevelMicroState17FieldId                , PeridigmField::STEP_NP1);
+    Bms18_N            = blockIt->getData( m_bondLevelMicroState18FieldId                , PeridigmField::STEP_N);
+    Bms18_NP1          = blockIt->getData( m_bondLevelMicroState18FieldId                , PeridigmField::STEP_NP1);
+    Bms19_N            = blockIt->getData( m_bondLevelMicroState19FieldId                , PeridigmField::STEP_N);
+    Bms19_NP1          = blockIt->getData( m_bondLevelMicroState19FieldId                , PeridigmField::STEP_NP1);
+    Bms20_N           = blockIt->getData( m_bondLevelMicroState20FieldId                , PeridigmField::STEP_N);
+    Bms20_NP1         = blockIt->getData( m_bondLevelMicroState20FieldId                , PeridigmField::STEP_NP1);
+
+    Bms21_N            = blockIt->getData( m_bondLevelMicroState21FieldId                , PeridigmField::STEP_N);
+    Bms21_NP1          = blockIt->getData( m_bondLevelMicroState21FieldId                , PeridigmField::STEP_NP1);
+    Bms22_N            = blockIt->getData( m_bondLevelMicroState22FieldId                , PeridigmField::STEP_N);
+    Bms22_NP1          = blockIt->getData( m_bondLevelMicroState22FieldId                , PeridigmField::STEP_NP1);
+    Bms23_N            = blockIt->getData( m_bondLevelMicroState23FieldId                , PeridigmField::STEP_N);
+    Bms23_NP1          = blockIt->getData( m_bondLevelMicroState23FieldId                , PeridigmField::STEP_NP1);
+    Bms24_N            = blockIt->getData( m_bondLevelMicroState24FieldId                , PeridigmField::STEP_N);
+    Bms24_NP1          = blockIt->getData( m_bondLevelMicroState24FieldId                , PeridigmField::STEP_NP1);
+    Bms25_N            = blockIt->getData( m_bondLevelMicroState25FieldId                , PeridigmField::STEP_N);
+    Bms25_NP1          = blockIt->getData( m_bondLevelMicroState25FieldId                , PeridigmField::STEP_NP1);
+    Bms26_N            = blockIt->getData( m_bondLevelMicroState26FieldId                , PeridigmField::STEP_N);
+    Bms26_NP1          = blockIt->getData( m_bondLevelMicroState26FieldId                , PeridigmField::STEP_NP1);
+    Bms27_N            = blockIt->getData( m_bondLevelMicroState27FieldId                , PeridigmField::STEP_N);
+    Bms27_NP1          = blockIt->getData( m_bondLevelMicroState27FieldId                , PeridigmField::STEP_NP1);
+    Bms28_N            = blockIt->getData( m_bondLevelMicroState28FieldId                , PeridigmField::STEP_N);
+    Bms28_NP1          = blockIt->getData( m_bondLevelMicroState28FieldId                , PeridigmField::STEP_NP1);
+    Bms29_N            = blockIt->getData( m_bondLevelMicroState29FieldId                , PeridigmField::STEP_N);
+    Bms29_NP1          = blockIt->getData( m_bondLevelMicroState29FieldId                , PeridigmField::STEP_NP1);
+    Bms30_N           = blockIt->getData( m_bondLevelMicroState30FieldId                , PeridigmField::STEP_N);
+    Bms30_NP1         = blockIt->getData( m_bondLevelMicroState30FieldId                , PeridigmField::STEP_NP1);
+
+    Bms31_N            = blockIt->getData( m_bondLevelMicroState31FieldId                , PeridigmField::STEP_N);
+    Bms31_NP1          = blockIt->getData( m_bondLevelMicroState31FieldId                , PeridigmField::STEP_NP1);
+    Bms32_N            = blockIt->getData( m_bondLevelMicroState32FieldId                , PeridigmField::STEP_N);
+    Bms32_NP1          = blockIt->getData( m_bondLevelMicroState32FieldId                , PeridigmField::STEP_NP1);
+    Bms33_N            = blockIt->getData( m_bondLevelMicroState33FieldId                , PeridigmField::STEP_N);
+    Bms33_NP1          = blockIt->getData( m_bondLevelMicroState33FieldId                , PeridigmField::STEP_NP1);
+    Bms34_N            = blockIt->getData( m_bondLevelMicroState34FieldId                , PeridigmField::STEP_N);
+    Bms34_NP1          = blockIt->getData( m_bondLevelMicroState34FieldId                , PeridigmField::STEP_NP1);
+    Bms35_N            = blockIt->getData( m_bondLevelMicroState35FieldId                , PeridigmField::STEP_N);
+    Bms35_NP1          = blockIt->getData( m_bondLevelMicroState35FieldId                , PeridigmField::STEP_NP1);
+    Bms36_N            = blockIt->getData( m_bondLevelMicroState36FieldId                , PeridigmField::STEP_N);
+    Bms36_NP1          = blockIt->getData( m_bondLevelMicroState36FieldId                , PeridigmField::STEP_NP1);
+    Bms37_N            = blockIt->getData( m_bondLevelMicroState37FieldId                , PeridigmField::STEP_N);
+    Bms37_NP1          = blockIt->getData( m_bondLevelMicroState37FieldId                , PeridigmField::STEP_NP1);
+    Bms38_N            = blockIt->getData( m_bondLevelMicroState38FieldId                , PeridigmField::STEP_N);
+    Bms38_NP1          = blockIt->getData( m_bondLevelMicroState38FieldId                , PeridigmField::STEP_NP1);
+    Bms39_N            = blockIt->getData( m_bondLevelMicroState39FieldId                , PeridigmField::STEP_N);
+    Bms39_NP1          = blockIt->getData( m_bondLevelMicroState39FieldId                , PeridigmField::STEP_NP1);
+    Bms40_N           = blockIt->getData( m_bondLevelMicroState40FieldId                , PeridigmField::STEP_N);
+    Bms40_NP1         = blockIt->getData( m_bondLevelMicroState40FieldId                , PeridigmField::STEP_NP1);
+
+    Bms41_N            = blockIt->getData( m_bondLevelMicroState41FieldId                , PeridigmField::STEP_N);
+    Bms41_NP1          = blockIt->getData( m_bondLevelMicroState41FieldId                , PeridigmField::STEP_NP1);
+    Bms42_N            = blockIt->getData( m_bondLevelMicroState42FieldId                , PeridigmField::STEP_N);
+    Bms42_NP1          = blockIt->getData( m_bondLevelMicroState42FieldId                , PeridigmField::STEP_NP1);
+    Bms43_N            = blockIt->getData( m_bondLevelMicroState43FieldId                , PeridigmField::STEP_N);
+    Bms43_NP1          = blockIt->getData( m_bondLevelMicroState43FieldId                , PeridigmField::STEP_NP1);
+    Bms44_N            = blockIt->getData( m_bondLevelMicroState44FieldId                , PeridigmField::STEP_N);
+    Bms44_NP1          = blockIt->getData( m_bondLevelMicroState44FieldId                , PeridigmField::STEP_NP1);
+    Bms45_N            = blockIt->getData( m_bondLevelMicroState45FieldId                , PeridigmField::STEP_N);
+    Bms45_NP1          = blockIt->getData( m_bondLevelMicroState45FieldId                , PeridigmField::STEP_NP1);
+    Bms46_N            = blockIt->getData( m_bondLevelMicroState46FieldId                , PeridigmField::STEP_N);
+    Bms46_NP1          = blockIt->getData( m_bondLevelMicroState46FieldId                , PeridigmField::STEP_NP1);
+    Bms47_N            = blockIt->getData( m_bondLevelMicroState47FieldId                , PeridigmField::STEP_N);
+    Bms47_NP1          = blockIt->getData( m_bondLevelMicroState47FieldId                , PeridigmField::STEP_NP1);
+    Bms48_N            = blockIt->getData( m_bondLevelMicroState48FieldId                , PeridigmField::STEP_N);
+    Bms48_NP1          = blockIt->getData( m_bondLevelMicroState48FieldId                , PeridigmField::STEP_NP1);
+    Bms49_N            = blockIt->getData( m_bondLevelMicroState49FieldId                , PeridigmField::STEP_N);
+    Bms49_NP1          = blockIt->getData( m_bondLevelMicroState49FieldId                , PeridigmField::STEP_NP1);
+    Bms50_N           = blockIt->getData( m_bondLevelMicroState50FieldId                , PeridigmField::STEP_N);
+    Bms50_NP1         = blockIt->getData( m_bondLevelMicroState50FieldId                , PeridigmField::STEP_NP1);
+
+    Bms51_N            = blockIt->getData( m_bondLevelMicroState51FieldId                , PeridigmField::STEP_N);
+    Bms51_NP1          = blockIt->getData( m_bondLevelMicroState51FieldId                , PeridigmField::STEP_NP1);
+    Bms52_N            = blockIt->getData( m_bondLevelMicroState52FieldId                , PeridigmField::STEP_N);
+    Bms52_NP1          = blockIt->getData( m_bondLevelMicroState52FieldId                , PeridigmField::STEP_NP1);
+    Bms53_N            = blockIt->getData( m_bondLevelMicroState53FieldId                , PeridigmField::STEP_N);
+    Bms53_NP1          = blockIt->getData( m_bondLevelMicroState53FieldId                , PeridigmField::STEP_NP1);
+    Bms54_N            = blockIt->getData( m_bondLevelMicroState54FieldId                , PeridigmField::STEP_N);
+    Bms54_NP1          = blockIt->getData( m_bondLevelMicroState54FieldId                , PeridigmField::STEP_NP1);
+    Bms55_N            = blockIt->getData( m_bondLevelMicroState55FieldId                , PeridigmField::STEP_N);
+    Bms55_NP1          = blockIt->getData( m_bondLevelMicroState55FieldId                , PeridigmField::STEP_NP1);
+    Bms56_N            = blockIt->getData( m_bondLevelMicroState56FieldId                , PeridigmField::STEP_N);
+    Bms56_NP1          = blockIt->getData( m_bondLevelMicroState56FieldId                , PeridigmField::STEP_NP1);
+    Bms57_N            = blockIt->getData( m_bondLevelMicroState57FieldId                , PeridigmField::STEP_N);
+    Bms57_NP1          = blockIt->getData( m_bondLevelMicroState57FieldId                , PeridigmField::STEP_NP1);
+    Bms58_N            = blockIt->getData( m_bondLevelMicroState58FieldId                , PeridigmField::STEP_N);
+    Bms58_NP1          = blockIt->getData( m_bondLevelMicroState58FieldId                , PeridigmField::STEP_NP1);
+    Bms59_N            = blockIt->getData( m_bondLevelMicroState59FieldId                , PeridigmField::STEP_N);
+    Bms59_NP1          = blockIt->getData( m_bondLevelMicroState59FieldId                , PeridigmField::STEP_NP1);
+    Bms60_N            = blockIt->getData( m_bondLevelMicroState60FieldId                , PeridigmField::STEP_N);
+    Bms60_NP1          = blockIt->getData( m_bondLevelMicroState60FieldId                , PeridigmField::STEP_NP1);
+
+    Bms61_N            = blockIt->getData( m_bondLevelMicroState61FieldId                , PeridigmField::STEP_N);
+    Bms61_NP1          = blockIt->getData( m_bondLevelMicroState61FieldId                , PeridigmField::STEP_NP1);
+    Bms62_N            = blockIt->getData( m_bondLevelMicroState62FieldId                , PeridigmField::STEP_N);
+    Bms62_NP1          = blockIt->getData( m_bondLevelMicroState62FieldId                , PeridigmField::STEP_NP1);
+    Bms63_N            = blockIt->getData( m_bondLevelMicroState63FieldId                , PeridigmField::STEP_N);
+    Bms63_NP1          = blockIt->getData( m_bondLevelMicroState63FieldId                , PeridigmField::STEP_NP1);
+    Bms64_N            = blockIt->getData( m_bondLevelMicroState64FieldId                , PeridigmField::STEP_N);
+    Bms64_NP1          = blockIt->getData( m_bondLevelMicroState64FieldId                , PeridigmField::STEP_NP1);
+    Bms65_N            = blockIt->getData( m_bondLevelMicroState65FieldId                , PeridigmField::STEP_N);
+    Bms65_NP1          = blockIt->getData( m_bondLevelMicroState65FieldId                , PeridigmField::STEP_NP1);
+    Bms66_N            = blockIt->getData( m_bondLevelMicroState66FieldId                , PeridigmField::STEP_N);
+    Bms66_NP1          = blockIt->getData( m_bondLevelMicroState66FieldId                , PeridigmField::STEP_NP1);
+    Bms67_N            = blockIt->getData( m_bondLevelMicroState67FieldId                , PeridigmField::STEP_N);
+    Bms67_NP1          = blockIt->getData( m_bondLevelMicroState67FieldId                , PeridigmField::STEP_NP1);
+    Bms68_N            = blockIt->getData( m_bondLevelMicroState68FieldId                , PeridigmField::STEP_N);
+    Bms68_NP1          = blockIt->getData( m_bondLevelMicroState68FieldId                , PeridigmField::STEP_NP1);
+    Bms69_N            = blockIt->getData( m_bondLevelMicroState69FieldId                , PeridigmField::STEP_N);
+    Bms69_NP1          = blockIt->getData( m_bondLevelMicroState69FieldId                , PeridigmField::STEP_NP1);
+    Bms70_N            = blockIt->getData( m_bondLevelMicroState70FieldId                , PeridigmField::STEP_N);
+    Bms70_NP1          = blockIt->getData( m_bondLevelMicroState70FieldId                , PeridigmField::STEP_NP1);
+
+    Bms71_N            = blockIt->getData( m_bondLevelMicroState71FieldId                , PeridigmField::STEP_N);
+    Bms71_NP1          = blockIt->getData( m_bondLevelMicroState71FieldId                , PeridigmField::STEP_NP1);
+    Bms72_N            = blockIt->getData( m_bondLevelMicroState72FieldId                , PeridigmField::STEP_N);
+    Bms72_NP1          = blockIt->getData( m_bondLevelMicroState72FieldId                , PeridigmField::STEP_NP1);
+    Bms73_N            = blockIt->getData( m_bondLevelMicroState73FieldId                , PeridigmField::STEP_N);
+    Bms73_NP1          = blockIt->getData( m_bondLevelMicroState73FieldId                , PeridigmField::STEP_NP1);
+    Bms74_N            = blockIt->getData( m_bondLevelMicroState74FieldId                , PeridigmField::STEP_N);
+    Bms74_NP1          = blockIt->getData( m_bondLevelMicroState74FieldId                , PeridigmField::STEP_NP1);
+    Bms75_N            = blockIt->getData( m_bondLevelMicroState75FieldId                , PeridigmField::STEP_N);
+    Bms75_NP1          = blockIt->getData( m_bondLevelMicroState75FieldId                , PeridigmField::STEP_NP1);
+    Bms76_N            = blockIt->getData( m_bondLevelMicroState76FieldId                , PeridigmField::STEP_N);
+    Bms76_NP1          = blockIt->getData( m_bondLevelMicroState76FieldId                , PeridigmField::STEP_NP1);
+    Bms77_N            = blockIt->getData( m_bondLevelMicroState77FieldId                , PeridigmField::STEP_N);
+    Bms77_NP1          = blockIt->getData( m_bondLevelMicroState77FieldId                , PeridigmField::STEP_NP1);
+    Bms78_N            = blockIt->getData( m_bondLevelMicroState78FieldId                , PeridigmField::STEP_N);
+    Bms78_NP1          = blockIt->getData( m_bondLevelMicroState78FieldId                , PeridigmField::STEP_NP1);
+    Bms79_N            = blockIt->getData( m_bondLevelMicroState79FieldId                , PeridigmField::STEP_N);
+    Bms79_NP1          = blockIt->getData( m_bondLevelMicroState79FieldId                , PeridigmField::STEP_NP1);
+    Bms80_N            = blockIt->getData( m_bondLevelMicroState80FieldId                , PeridigmField::STEP_N);
+    Bms80_NP1          = blockIt->getData( m_bondLevelMicroState80FieldId                , PeridigmField::STEP_NP1);
+
+    Bms81_N            = blockIt->getData( m_bondLevelMicroState81FieldId                , PeridigmField::STEP_N);
+    Bms81_NP1          = blockIt->getData( m_bondLevelMicroState81FieldId                , PeridigmField::STEP_NP1);
+    Bms82_N            = blockIt->getData( m_bondLevelMicroState82FieldId                , PeridigmField::STEP_N);
+    Bms82_NP1          = blockIt->getData( m_bondLevelMicroState82FieldId                , PeridigmField::STEP_NP1);
+    Bms83_N            = blockIt->getData( m_bondLevelMicroState83FieldId                , PeridigmField::STEP_N);
+    Bms83_NP1          = blockIt->getData( m_bondLevelMicroState83FieldId                , PeridigmField::STEP_NP1);
+    Bms84_N            = blockIt->getData( m_bondLevelMicroState84FieldId                , PeridigmField::STEP_N);
+    Bms84_NP1          = blockIt->getData( m_bondLevelMicroState84FieldId                , PeridigmField::STEP_NP1);
+    Bms85_N            = blockIt->getData( m_bondLevelMicroState85FieldId                , PeridigmField::STEP_N);
+    Bms85_NP1          = blockIt->getData( m_bondLevelMicroState85FieldId                , PeridigmField::STEP_NP1);
+    Bms86_N            = blockIt->getData( m_bondLevelMicroState86FieldId                , PeridigmField::STEP_N);
+    Bms86_NP1          = blockIt->getData( m_bondLevelMicroState86FieldId                , PeridigmField::STEP_NP1);
+    Bms87_N            = blockIt->getData( m_bondLevelMicroState87FieldId                , PeridigmField::STEP_N);
+    Bms87_NP1          = blockIt->getData( m_bondLevelMicroState87FieldId                , PeridigmField::STEP_NP1);
+    Bms88_N            = blockIt->getData( m_bondLevelMicroState88FieldId                , PeridigmField::STEP_N);
+    Bms88_NP1          = blockIt->getData( m_bondLevelMicroState88FieldId                , PeridigmField::STEP_NP1);
+    Bms89_N            = blockIt->getData( m_bondLevelMicroState89FieldId                , PeridigmField::STEP_N);
+    Bms89_NP1          = blockIt->getData( m_bondLevelMicroState89FieldId                , PeridigmField::STEP_NP1);
+    Bms90_N            = blockIt->getData( m_bondLevelMicroState90FieldId                , PeridigmField::STEP_N);
+    Bms90_NP1          = blockIt->getData( m_bondLevelMicroState90FieldId                , PeridigmField::STEP_NP1);
+
+    Bms91_N            = blockIt->getData( m_bondLevelMicroState91FieldId                , PeridigmField::STEP_N);
+    Bms91_NP1          = blockIt->getData( m_bondLevelMicroState91FieldId                , PeridigmField::STEP_NP1);
+    Bms92_N            = blockIt->getData( m_bondLevelMicroState92FieldId                , PeridigmField::STEP_N);
+    Bms92_NP1          = blockIt->getData( m_bondLevelMicroState92FieldId                , PeridigmField::STEP_NP1);
+    Bms93_N            = blockIt->getData( m_bondLevelMicroState93FieldId                , PeridigmField::STEP_N);
+    Bms93_NP1          = blockIt->getData( m_bondLevelMicroState93FieldId                , PeridigmField::STEP_NP1);
+    Bms94_N            = blockIt->getData( m_bondLevelMicroState94FieldId                , PeridigmField::STEP_N);
+    Bms94_NP1          = blockIt->getData( m_bondLevelMicroState94FieldId                , PeridigmField::STEP_NP1);
+    Bms95_N            = blockIt->getData( m_bondLevelMicroState95FieldId                , PeridigmField::STEP_N);
+    Bms95_NP1          = blockIt->getData( m_bondLevelMicroState95FieldId                , PeridigmField::STEP_NP1);
+    Bms96_N            = blockIt->getData( m_bondLevelMicroState96FieldId                , PeridigmField::STEP_N);
+    Bms96_NP1          = blockIt->getData( m_bondLevelMicroState96FieldId                , PeridigmField::STEP_NP1);
+    Bms97_N            = blockIt->getData( m_bondLevelMicroState97FieldId                , PeridigmField::STEP_N);
+    Bms97_NP1          = blockIt->getData( m_bondLevelMicroState97FieldId                , PeridigmField::STEP_NP1);
+    Bms98_N            = blockIt->getData( m_bondLevelMicroState98FieldId                , PeridigmField::STEP_N);
+    Bms98_NP1          = blockIt->getData( m_bondLevelMicroState98FieldId                , PeridigmField::STEP_NP1);
+    Bms99_N            = blockIt->getData( m_bondLevelMicroState99FieldId                , PeridigmField::STEP_N);
+    Bms99_NP1          = blockIt->getData( m_bondLevelMicroState99FieldId                , PeridigmField::STEP_NP1);
+    Bms100_N            = blockIt->getData( m_bondLevelMicroState100FieldId                , PeridigmField::STEP_N);
+    Bms100_NP1          = blockIt->getData( m_bondLevelMicroState100FieldId                , PeridigmField::STEP_NP1);
+
+
+    Bms101_N            = blockIt->getData( m_bondLevelMicroState101FieldId                , PeridigmField::STEP_N);
+    Bms101_NP1          = blockIt->getData( m_bondLevelMicroState101FieldId                , PeridigmField::STEP_NP1);
+    Bms102_N            = blockIt->getData( m_bondLevelMicroState102FieldId                , PeridigmField::STEP_N);
+    Bms102_NP1          = blockIt->getData( m_bondLevelMicroState102FieldId                , PeridigmField::STEP_NP1);
+    Bms103_N            = blockIt->getData( m_bondLevelMicroState103FieldId                , PeridigmField::STEP_N);
+    Bms103_NP1          = blockIt->getData( m_bondLevelMicroState103FieldId                , PeridigmField::STEP_NP1);
+    Bms104_N            = blockIt->getData( m_bondLevelMicroState104FieldId                , PeridigmField::STEP_N);
+    Bms104_NP1          = blockIt->getData( m_bondLevelMicroState104FieldId                , PeridigmField::STEP_NP1);
+    Bms105_N            = blockIt->getData( m_bondLevelMicroState105FieldId                , PeridigmField::STEP_N);
+    Bms105_NP1          = blockIt->getData( m_bondLevelMicroState105FieldId                , PeridigmField::STEP_NP1);
+    Bms106_N            = blockIt->getData( m_bondLevelMicroState106FieldId                , PeridigmField::STEP_N);
+    Bms106_NP1          = blockIt->getData( m_bondLevelMicroState106FieldId                , PeridigmField::STEP_NP1);
+    Bms107_N            = blockIt->getData( m_bondLevelMicroState107FieldId                , PeridigmField::STEP_N);
+    Bms107_NP1          = blockIt->getData( m_bondLevelMicroState107FieldId                , PeridigmField::STEP_NP1);
+    Bms108_N            = blockIt->getData( m_bondLevelMicroState108FieldId                , PeridigmField::STEP_N);
+    Bms108_NP1          = blockIt->getData( m_bondLevelMicroState108FieldId                , PeridigmField::STEP_NP1);
+    Bms109_N            = blockIt->getData( m_bondLevelMicroState109FieldId                , PeridigmField::STEP_N);
+    Bms109_NP1          = blockIt->getData( m_bondLevelMicroState109FieldId                , PeridigmField::STEP_NP1);
+    Bms110_N           = blockIt->getData( m_bondLevelMicroState110FieldId                , PeridigmField::STEP_N);
+    Bms110_NP1         = blockIt->getData( m_bondLevelMicroState110FieldId                , PeridigmField::STEP_NP1);
+
+    Bms111_N            = blockIt->getData( m_bondLevelMicroState111FieldId                , PeridigmField::STEP_N);
+    Bms111_NP1          = blockIt->getData( m_bondLevelMicroState111FieldId                , PeridigmField::STEP_NP1);
+    Bms112_N            = blockIt->getData( m_bondLevelMicroState112FieldId                , PeridigmField::STEP_N);
+    Bms112_NP1          = blockIt->getData( m_bondLevelMicroState112FieldId                , PeridigmField::STEP_NP1);
+    Bms113_N            = blockIt->getData( m_bondLevelMicroState113FieldId                , PeridigmField::STEP_N);
+    Bms113_NP1          = blockIt->getData( m_bondLevelMicroState113FieldId                , PeridigmField::STEP_NP1);
+    Bms114_N            = blockIt->getData( m_bondLevelMicroState114FieldId                , PeridigmField::STEP_N);
+    Bms114_NP1          = blockIt->getData( m_bondLevelMicroState114FieldId                , PeridigmField::STEP_NP1);
+    Bms115_N            = blockIt->getData( m_bondLevelMicroState115FieldId                , PeridigmField::STEP_N);
+    Bms115_NP1          = blockIt->getData( m_bondLevelMicroState115FieldId                , PeridigmField::STEP_NP1);
+    Bms116_N            = blockIt->getData( m_bondLevelMicroState116FieldId                , PeridigmField::STEP_N);
+    Bms116_NP1          = blockIt->getData( m_bondLevelMicroState116FieldId                , PeridigmField::STEP_NP1);
+    Bms117_N            = blockIt->getData( m_bondLevelMicroState117FieldId                , PeridigmField::STEP_N);
+    Bms117_NP1          = blockIt->getData( m_bondLevelMicroState117FieldId                , PeridigmField::STEP_NP1);
+    Bms118_N            = blockIt->getData( m_bondLevelMicroState118FieldId                , PeridigmField::STEP_N);
+    Bms118_NP1          = blockIt->getData( m_bondLevelMicroState118FieldId                , PeridigmField::STEP_NP1);
+    Bms119_N            = blockIt->getData( m_bondLevelMicroState119FieldId                , PeridigmField::STEP_N);
+    Bms119_NP1          = blockIt->getData( m_bondLevelMicroState119FieldId                , PeridigmField::STEP_NP1);
+    Bms120_N           = blockIt->getData( m_bondLevelMicroState120FieldId                , PeridigmField::STEP_N);
+    Bms120_NP1         = blockIt->getData( m_bondLevelMicroState120FieldId                , PeridigmField::STEP_NP1);
+
+    Bms121_N            = blockIt->getData( m_bondLevelMicroState121FieldId                , PeridigmField::STEP_N);
+    Bms121_NP1          = blockIt->getData( m_bondLevelMicroState121FieldId                , PeridigmField::STEP_NP1);
+    Bms122_N            = blockIt->getData( m_bondLevelMicroState122FieldId                , PeridigmField::STEP_N);
+    Bms122_NP1          = blockIt->getData( m_bondLevelMicroState122FieldId                , PeridigmField::STEP_NP1);
+    Bms123_N            = blockIt->getData( m_bondLevelMicroState123FieldId                , PeridigmField::STEP_N);
+    Bms123_NP1          = blockIt->getData( m_bondLevelMicroState123FieldId                , PeridigmField::STEP_NP1);
+    Bms124_N            = blockIt->getData( m_bondLevelMicroState124FieldId                , PeridigmField::STEP_N);
+    Bms124_NP1          = blockIt->getData( m_bondLevelMicroState124FieldId                , PeridigmField::STEP_NP1);
+    Bms125_N            = blockIt->getData( m_bondLevelMicroState125FieldId                , PeridigmField::STEP_N);
+    Bms125_NP1          = blockIt->getData( m_bondLevelMicroState125FieldId                , PeridigmField::STEP_NP1);
+    Bms126_N            = blockIt->getData( m_bondLevelMicroState126FieldId                , PeridigmField::STEP_N);
+    Bms126_NP1          = blockIt->getData( m_bondLevelMicroState126FieldId                , PeridigmField::STEP_NP1);
+    Bms127_N            = blockIt->getData( m_bondLevelMicroState127FieldId                , PeridigmField::STEP_N);
+    Bms127_NP1          = blockIt->getData( m_bondLevelMicroState127FieldId                , PeridigmField::STEP_NP1);
+    Bms128_N            = blockIt->getData( m_bondLevelMicroState128FieldId                , PeridigmField::STEP_N);
+    Bms128_NP1          = blockIt->getData( m_bondLevelMicroState128FieldId                , PeridigmField::STEP_NP1);
+    Bms129_N            = blockIt->getData( m_bondLevelMicroState129FieldId                , PeridigmField::STEP_N);
+    Bms129_NP1          = blockIt->getData( m_bondLevelMicroState129FieldId                , PeridigmField::STEP_NP1);
+    Bms130_N           = blockIt->getData( m_bondLevelMicroState130FieldId                , PeridigmField::STEP_N);
+    Bms130_NP1         = blockIt->getData( m_bondLevelMicroState130FieldId                , PeridigmField::STEP_NP1);
+
+    Bms131_N            = blockIt->getData( m_bondLevelMicroState131FieldId                , PeridigmField::STEP_N);
+    Bms131_NP1          = blockIt->getData( m_bondLevelMicroState131FieldId                , PeridigmField::STEP_NP1);
+    Bms132_N            = blockIt->getData( m_bondLevelMicroState132FieldId                , PeridigmField::STEP_N);
+    Bms132_NP1          = blockIt->getData( m_bondLevelMicroState132FieldId                , PeridigmField::STEP_NP1);
+    Bms133_N            = blockIt->getData( m_bondLevelMicroState133FieldId                , PeridigmField::STEP_N);
+    Bms133_NP1          = blockIt->getData( m_bondLevelMicroState133FieldId                , PeridigmField::STEP_NP1);
+    Bms134_N            = blockIt->getData( m_bondLevelMicroState134FieldId                , PeridigmField::STEP_N);
+    Bms134_NP1          = blockIt->getData( m_bondLevelMicroState134FieldId                , PeridigmField::STEP_NP1);
+    Bms135_N            = blockIt->getData( m_bondLevelMicroState135FieldId                , PeridigmField::STEP_N);
+    Bms135_NP1          = blockIt->getData( m_bondLevelMicroState135FieldId                , PeridigmField::STEP_NP1);
+    Bms136_N            = blockIt->getData( m_bondLevelMicroState136FieldId                , PeridigmField::STEP_N);
+    Bms136_NP1          = blockIt->getData( m_bondLevelMicroState136FieldId                , PeridigmField::STEP_NP1);
+    Bms137_N            = blockIt->getData( m_bondLevelMicroState137FieldId                , PeridigmField::STEP_N);
+    Bms137_NP1          = blockIt->getData( m_bondLevelMicroState137FieldId                , PeridigmField::STEP_NP1);
+    Bms138_N            = blockIt->getData( m_bondLevelMicroState138FieldId                , PeridigmField::STEP_N);
+    Bms138_NP1          = blockIt->getData( m_bondLevelMicroState138FieldId                , PeridigmField::STEP_NP1);
+    Bms139_N            = blockIt->getData( m_bondLevelMicroState139FieldId                , PeridigmField::STEP_N);
+    Bms139_NP1          = blockIt->getData( m_bondLevelMicroState139FieldId                , PeridigmField::STEP_NP1);
+    Bms140_N           = blockIt->getData( m_bondLevelMicroState140FieldId                , PeridigmField::STEP_N);
+    Bms140_NP1         = blockIt->getData( m_bondLevelMicroState140FieldId                , PeridigmField::STEP_NP1);
+
+    Bms141_N            = blockIt->getData( m_bondLevelMicroState141FieldId                , PeridigmField::STEP_N);
+    Bms141_NP1          = blockIt->getData( m_bondLevelMicroState141FieldId                , PeridigmField::STEP_NP1);
+    Bms142_N            = blockIt->getData( m_bondLevelMicroState142FieldId                , PeridigmField::STEP_N);
+    Bms142_NP1          = blockIt->getData( m_bondLevelMicroState142FieldId                , PeridigmField::STEP_NP1);
+    Bms143_N            = blockIt->getData( m_bondLevelMicroState143FieldId                , PeridigmField::STEP_N);
+    Bms143_NP1          = blockIt->getData( m_bondLevelMicroState143FieldId                , PeridigmField::STEP_NP1);
+    Bms144_N            = blockIt->getData( m_bondLevelMicroState144FieldId                , PeridigmField::STEP_N);
+    Bms144_NP1          = blockIt->getData( m_bondLevelMicroState144FieldId                , PeridigmField::STEP_NP1);
+    Bms145_N            = blockIt->getData( m_bondLevelMicroState145FieldId                , PeridigmField::STEP_N);
+    Bms145_NP1          = blockIt->getData( m_bondLevelMicroState145FieldId                , PeridigmField::STEP_NP1);
+    Bms146_N            = blockIt->getData( m_bondLevelMicroState146FieldId                , PeridigmField::STEP_N);
+    Bms146_NP1          = blockIt->getData( m_bondLevelMicroState146FieldId                , PeridigmField::STEP_NP1);
+    Bms147_N            = blockIt->getData( m_bondLevelMicroState147FieldId                , PeridigmField::STEP_N);
+    Bms147_NP1          = blockIt->getData( m_bondLevelMicroState147FieldId                , PeridigmField::STEP_NP1);
+    Bms148_N            = blockIt->getData( m_bondLevelMicroState148FieldId                , PeridigmField::STEP_N);
+    Bms148_NP1          = blockIt->getData( m_bondLevelMicroState148FieldId                , PeridigmField::STEP_NP1);
+    Bms149_N            = blockIt->getData( m_bondLevelMicroState149FieldId                , PeridigmField::STEP_N);
+    Bms149_NP1          = blockIt->getData( m_bondLevelMicroState149FieldId                , PeridigmField::STEP_NP1);
+    Bms150_N           = blockIt->getData( m_bondLevelMicroState150FieldId                , PeridigmField::STEP_N);
+    Bms150_NP1         = blockIt->getData( m_bondLevelMicroState150FieldId                , PeridigmField::STEP_NP1);
+
+    Bms151_N            = blockIt->getData( m_bondLevelMicroState151FieldId                , PeridigmField::STEP_N);
+    Bms151_NP1          = blockIt->getData( m_bondLevelMicroState151FieldId                , PeridigmField::STEP_NP1);
+    Bms152_N            = blockIt->getData( m_bondLevelMicroState152FieldId                , PeridigmField::STEP_N);
+    Bms152_NP1          = blockIt->getData( m_bondLevelMicroState152FieldId                , PeridigmField::STEP_NP1);
+    Bms153_N            = blockIt->getData( m_bondLevelMicroState153FieldId                , PeridigmField::STEP_N);
+    Bms153_NP1          = blockIt->getData( m_bondLevelMicroState153FieldId                , PeridigmField::STEP_NP1);
+    Bms154_N            = blockIt->getData( m_bondLevelMicroState154FieldId                , PeridigmField::STEP_N);
+    Bms154_NP1          = blockIt->getData( m_bondLevelMicroState154FieldId                , PeridigmField::STEP_NP1);
+    Bms155_N            = blockIt->getData( m_bondLevelMicroState155FieldId                , PeridigmField::STEP_N);
+    Bms155_NP1          = blockIt->getData( m_bondLevelMicroState155FieldId                , PeridigmField::STEP_NP1);
+    Bms156_N            = blockIt->getData( m_bondLevelMicroState156FieldId                , PeridigmField::STEP_N);
+    Bms156_NP1          = blockIt->getData( m_bondLevelMicroState156FieldId                , PeridigmField::STEP_NP1);
+    Bms157_N            = blockIt->getData( m_bondLevelMicroState157FieldId                , PeridigmField::STEP_N);
+    Bms157_NP1          = blockIt->getData( m_bondLevelMicroState157FieldId                , PeridigmField::STEP_NP1);
+    Bms158_N            = blockIt->getData( m_bondLevelMicroState158FieldId                , PeridigmField::STEP_N);
+    Bms158_NP1          = blockIt->getData( m_bondLevelMicroState158FieldId                , PeridigmField::STEP_NP1);
+    Bms159_N            = blockIt->getData( m_bondLevelMicroState159FieldId                , PeridigmField::STEP_N);
+    Bms159_NP1          = blockIt->getData( m_bondLevelMicroState159FieldId                , PeridigmField::STEP_NP1);
+    Bms160_N            = blockIt->getData( m_bondLevelMicroState160FieldId                , PeridigmField::STEP_N);
+    Bms160_NP1          = blockIt->getData( m_bondLevelMicroState160FieldId                , PeridigmField::STEP_NP1);
+
+    Bms161_N            = blockIt->getData( m_bondLevelMicroState161FieldId                , PeridigmField::STEP_N);
+    Bms161_NP1          = blockIt->getData( m_bondLevelMicroState161FieldId                , PeridigmField::STEP_NP1);
+    Bms162_N            = blockIt->getData( m_bondLevelMicroState162FieldId                , PeridigmField::STEP_N);
+    Bms162_NP1          = blockIt->getData( m_bondLevelMicroState162FieldId                , PeridigmField::STEP_NP1);
+    Bms163_N            = blockIt->getData( m_bondLevelMicroState163FieldId                , PeridigmField::STEP_N);
+    Bms163_NP1          = blockIt->getData( m_bondLevelMicroState163FieldId                , PeridigmField::STEP_NP1);
+    Bms164_N            = blockIt->getData( m_bondLevelMicroState164FieldId                , PeridigmField::STEP_N);
+    Bms164_NP1          = blockIt->getData( m_bondLevelMicroState164FieldId                , PeridigmField::STEP_NP1);
+    Bms165_N            = blockIt->getData( m_bondLevelMicroState165FieldId                , PeridigmField::STEP_N);
+    Bms165_NP1          = blockIt->getData( m_bondLevelMicroState165FieldId                , PeridigmField::STEP_NP1);
+    Bms166_N            = blockIt->getData( m_bondLevelMicroState166FieldId                , PeridigmField::STEP_N);
+    Bms166_NP1          = blockIt->getData( m_bondLevelMicroState166FieldId                , PeridigmField::STEP_NP1);
+    Bms167_N            = blockIt->getData( m_bondLevelMicroState167FieldId                , PeridigmField::STEP_N);
+    Bms167_NP1          = blockIt->getData( m_bondLevelMicroState167FieldId                , PeridigmField::STEP_NP1);
+    Bms168_N            = blockIt->getData( m_bondLevelMicroState168FieldId                , PeridigmField::STEP_N);
+    Bms168_NP1          = blockIt->getData( m_bondLevelMicroState168FieldId                , PeridigmField::STEP_NP1);
+    Bms169_N            = blockIt->getData( m_bondLevelMicroState169FieldId                , PeridigmField::STEP_N);
+    Bms169_NP1          = blockIt->getData( m_bondLevelMicroState169FieldId                , PeridigmField::STEP_NP1);
+    Bms170_N            = blockIt->getData( m_bondLevelMicroState170FieldId                , PeridigmField::STEP_N);
+    Bms170_NP1          = blockIt->getData( m_bondLevelMicroState170FieldId                , PeridigmField::STEP_NP1);
+
+    Bms171_N            = blockIt->getData( m_bondLevelMicroState171FieldId                , PeridigmField::STEP_N);
+    Bms171_NP1          = blockIt->getData( m_bondLevelMicroState171FieldId                , PeridigmField::STEP_NP1);
+    Bms172_N            = blockIt->getData( m_bondLevelMicroState172FieldId                , PeridigmField::STEP_N);
+    Bms172_NP1          = blockIt->getData( m_bondLevelMicroState172FieldId                , PeridigmField::STEP_NP1);
+    Bms173_N            = blockIt->getData( m_bondLevelMicroState173FieldId                , PeridigmField::STEP_N);
+    Bms173_NP1          = blockIt->getData( m_bondLevelMicroState173FieldId                , PeridigmField::STEP_NP1);
+    Bms174_N            = blockIt->getData( m_bondLevelMicroState174FieldId                , PeridigmField::STEP_N);
+    Bms174_NP1          = blockIt->getData( m_bondLevelMicroState174FieldId                , PeridigmField::STEP_NP1);
+    Bms175_N            = blockIt->getData( m_bondLevelMicroState175FieldId                , PeridigmField::STEP_N);
+    Bms175_NP1          = blockIt->getData( m_bondLevelMicroState175FieldId                , PeridigmField::STEP_NP1);
+    Bms176_N            = blockIt->getData( m_bondLevelMicroState176FieldId                , PeridigmField::STEP_N);
+    Bms176_NP1          = blockIt->getData( m_bondLevelMicroState176FieldId                , PeridigmField::STEP_NP1);
+    Bms177_N            = blockIt->getData( m_bondLevelMicroState177FieldId                , PeridigmField::STEP_N);
+    Bms177_NP1          = blockIt->getData( m_bondLevelMicroState177FieldId                , PeridigmField::STEP_NP1);
+    Bms178_N            = blockIt->getData( m_bondLevelMicroState178FieldId                , PeridigmField::STEP_N);
+    Bms178_NP1          = blockIt->getData( m_bondLevelMicroState178FieldId                , PeridigmField::STEP_NP1);
+    Bms179_N            = blockIt->getData( m_bondLevelMicroState179FieldId                , PeridigmField::STEP_N);
+    Bms179_NP1          = blockIt->getData( m_bondLevelMicroState179FieldId                , PeridigmField::STEP_NP1);
+    Bms180_N            = blockIt->getData( m_bondLevelMicroState180FieldId                , PeridigmField::STEP_N);
+    Bms180_NP1          = blockIt->getData( m_bondLevelMicroState180FieldId                , PeridigmField::STEP_NP1);
+
+    Bms181_N            = blockIt->getData( m_bondLevelMicroState181FieldId                , PeridigmField::STEP_N);
+    Bms181_NP1          = blockIt->getData( m_bondLevelMicroState181FieldId                , PeridigmField::STEP_NP1);
+    Bms182_N            = blockIt->getData( m_bondLevelMicroState182FieldId                , PeridigmField::STEP_N);
+    Bms182_NP1          = blockIt->getData( m_bondLevelMicroState182FieldId                , PeridigmField::STEP_NP1);
+    Bms183_N            = blockIt->getData( m_bondLevelMicroState183FieldId                , PeridigmField::STEP_N);
+    Bms183_NP1          = blockIt->getData( m_bondLevelMicroState183FieldId                , PeridigmField::STEP_NP1);
+    Bms184_N            = blockIt->getData( m_bondLevelMicroState184FieldId                , PeridigmField::STEP_N);
+    Bms184_NP1          = blockIt->getData( m_bondLevelMicroState184FieldId                , PeridigmField::STEP_NP1);
+    Bms185_N            = blockIt->getData( m_bondLevelMicroState185FieldId                , PeridigmField::STEP_N);
+    Bms185_NP1          = blockIt->getData( m_bondLevelMicroState185FieldId                , PeridigmField::STEP_NP1);
+    Bms186_N            = blockIt->getData( m_bondLevelMicroState186FieldId                , PeridigmField::STEP_N);
+    Bms186_NP1          = blockIt->getData( m_bondLevelMicroState186FieldId                , PeridigmField::STEP_NP1);
+    Bms187_N            = blockIt->getData( m_bondLevelMicroState187FieldId                , PeridigmField::STEP_N);
+    Bms187_NP1          = blockIt->getData( m_bondLevelMicroState187FieldId                , PeridigmField::STEP_NP1);
+    Bms188_N            = blockIt->getData( m_bondLevelMicroState188FieldId                , PeridigmField::STEP_N);
+    Bms188_NP1          = blockIt->getData( m_bondLevelMicroState188FieldId                , PeridigmField::STEP_NP1);
+    Bms189_N            = blockIt->getData( m_bondLevelMicroState189FieldId                , PeridigmField::STEP_N);
+    Bms189_NP1          = blockIt->getData( m_bondLevelMicroState189FieldId                , PeridigmField::STEP_NP1);
+
+/////// Bond Level Microdamage //////////////////
+    Bmd1_N            = blockIt->getData( m_bondLevelMicroDamage1FieldId                , PeridigmField::STEP_N);
+    Bmd1_NP1          = blockIt->getData( m_bondLevelMicroDamage1FieldId                , PeridigmField::STEP_NP1);
+    Bmd2_N            = blockIt->getData( m_bondLevelMicroDamage2FieldId                , PeridigmField::STEP_N);
+    Bmd2_NP1          = blockIt->getData( m_bondLevelMicroDamage2FieldId                , PeridigmField::STEP_NP1);
+    Bmd3_N            = blockIt->getData( m_bondLevelMicroDamage3FieldId                , PeridigmField::STEP_N);
+    Bmd3_NP1          = blockIt->getData( m_bondLevelMicroDamage3FieldId                , PeridigmField::STEP_NP1);
+    Bmd4_N            = blockIt->getData( m_bondLevelMicroDamage4FieldId                , PeridigmField::STEP_N);
+    Bmd4_NP1          = blockIt->getData( m_bondLevelMicroDamage4FieldId                , PeridigmField::STEP_NP1);
+    Bmd5_N            = blockIt->getData( m_bondLevelMicroDamage5FieldId                , PeridigmField::STEP_N);
+    Bmd5_NP1          = blockIt->getData( m_bondLevelMicroDamage5FieldId                , PeridigmField::STEP_NP1);
+    Bmd6_N            = blockIt->getData( m_bondLevelMicroDamage6FieldId                , PeridigmField::STEP_N);
+    Bmd6_NP1          = blockIt->getData( m_bondLevelMicroDamage6FieldId                , PeridigmField::STEP_NP1);
+    Bmd7_N            = blockIt->getData( m_bondLevelMicroDamage7FieldId                , PeridigmField::STEP_N);
+    Bmd7_NP1          = blockIt->getData( m_bondLevelMicroDamage7FieldId                , PeridigmField::STEP_NP1);
+    Bmd8_N            = blockIt->getData( m_bondLevelMicroDamage8FieldId                , PeridigmField::STEP_N);
+    Bmd8_NP1          = blockIt->getData( m_bondLevelMicroDamage8FieldId                , PeridigmField::STEP_NP1);
+    Bmd9_N            = blockIt->getData( m_bondLevelMicroDamage9FieldId                , PeridigmField::STEP_N);
+    Bmd9_NP1          = blockIt->getData( m_bondLevelMicroDamage9FieldId                , PeridigmField::STEP_NP1);
+    Bmd10_N           = blockIt->getData( m_bondLevelMicroDamage10FieldId               , PeridigmField::STEP_N);
+    Bmd10_NP1         = blockIt->getData( m_bondLevelMicroDamage10FieldId               , PeridigmField::STEP_NP1);
+
+    Bmd11_N            = blockIt->getData( m_bondLevelMicroDamage11FieldId                , PeridigmField::STEP_N);
+    Bmd11_NP1          = blockIt->getData( m_bondLevelMicroDamage11FieldId                , PeridigmField::STEP_NP1);
+    Bmd12_N            = blockIt->getData( m_bondLevelMicroDamage12FieldId                , PeridigmField::STEP_N);
+    Bmd12_NP1          = blockIt->getData( m_bondLevelMicroDamage12FieldId                , PeridigmField::STEP_NP1);
+    Bmd13_N            = blockIt->getData( m_bondLevelMicroDamage13FieldId                , PeridigmField::STEP_N);
+    Bmd13_NP1          = blockIt->getData( m_bondLevelMicroDamage13FieldId                , PeridigmField::STEP_NP1);
+    Bmd14_N            = blockIt->getData( m_bondLevelMicroDamage14FieldId                , PeridigmField::STEP_N);
+    Bmd14_NP1          = blockIt->getData( m_bondLevelMicroDamage14FieldId                , PeridigmField::STEP_NP1);
+    Bmd15_N            = blockIt->getData( m_bondLevelMicroDamage15FieldId                , PeridigmField::STEP_N);
+    Bmd15_NP1          = blockIt->getData( m_bondLevelMicroDamage15FieldId                , PeridigmField::STEP_NP1);
+    Bmd16_N            = blockIt->getData( m_bondLevelMicroDamage16FieldId                , PeridigmField::STEP_N);
+    Bmd16_NP1          = blockIt->getData( m_bondLevelMicroDamage16FieldId                , PeridigmField::STEP_NP1);
+    Bmd17_N            = blockIt->getData( m_bondLevelMicroDamage17FieldId                , PeridigmField::STEP_N);
+    Bmd17_NP1          = blockIt->getData( m_bondLevelMicroDamage17FieldId                , PeridigmField::STEP_NP1);
+    Bmd18_N            = blockIt->getData( m_bondLevelMicroDamage18FieldId                , PeridigmField::STEP_N);
+    Bmd18_NP1          = blockIt->getData( m_bondLevelMicroDamage18FieldId                , PeridigmField::STEP_NP1);
+    Bmd19_N            = blockIt->getData( m_bondLevelMicroDamage19FieldId                , PeridigmField::STEP_N);
+    Bmd19_NP1          = blockIt->getData( m_bondLevelMicroDamage19FieldId                , PeridigmField::STEP_NP1);
+    Bmd20_N            = blockIt->getData( m_bondLevelMicroDamage20FieldId                , PeridigmField::STEP_N);
+    Bmd20_NP1          = blockIt->getData( m_bondLevelMicroDamage20FieldId                , PeridigmField::STEP_NP1);
+
+    Bmd21_N            = blockIt->getData( m_bondLevelMicroDamage21FieldId                , PeridigmField::STEP_N);
+    Bmd21_NP1          = blockIt->getData( m_bondLevelMicroDamage21FieldId                , PeridigmField::STEP_NP1);
+    Bmd22_N            = blockIt->getData( m_bondLevelMicroDamage22FieldId                , PeridigmField::STEP_N);
+    Bmd22_NP1          = blockIt->getData( m_bondLevelMicroDamage22FieldId                , PeridigmField::STEP_NP1);
+    Bmd23_N            = blockIt->getData( m_bondLevelMicroDamage23FieldId                , PeridigmField::STEP_N);
+    Bmd23_NP1          = blockIt->getData( m_bondLevelMicroDamage23FieldId                , PeridigmField::STEP_NP1);
+    Bmd24_N            = blockIt->getData( m_bondLevelMicroDamage24FieldId                , PeridigmField::STEP_N);
+    Bmd24_NP1          = blockIt->getData( m_bondLevelMicroDamage24FieldId                , PeridigmField::STEP_NP1);
+    Bmd25_N            = blockIt->getData( m_bondLevelMicroDamage25FieldId                , PeridigmField::STEP_N);
+    Bmd25_NP1          = blockIt->getData( m_bondLevelMicroDamage25FieldId                , PeridigmField::STEP_NP1);
+    Bmd26_N            = blockIt->getData( m_bondLevelMicroDamage26FieldId                , PeridigmField::STEP_N);
+    Bmd26_NP1          = blockIt->getData( m_bondLevelMicroDamage26FieldId                , PeridigmField::STEP_NP1);
+    Bmd27_N            = blockIt->getData( m_bondLevelMicroDamage27FieldId                , PeridigmField::STEP_N);
+    Bmd27_NP1          = blockIt->getData( m_bondLevelMicroDamage27FieldId                , PeridigmField::STEP_NP1);
+    Bmd28_N            = blockIt->getData( m_bondLevelMicroDamage28FieldId                , PeridigmField::STEP_N);
+    Bmd28_NP1          = blockIt->getData( m_bondLevelMicroDamage28FieldId                , PeridigmField::STEP_NP1);
+    Bmd29_N            = blockIt->getData( m_bondLevelMicroDamage29FieldId                , PeridigmField::STEP_N);
+    Bmd29_NP1          = blockIt->getData( m_bondLevelMicroDamage29FieldId                , PeridigmField::STEP_NP1);
+    Bmd30_N           = blockIt->getData( m_bondLevelMicroDamage30FieldId                , PeridigmField::STEP_N);
+    Bmd30_NP1         = blockIt->getData( m_bondLevelMicroDamage30FieldId                , PeridigmField::STEP_NP1);
+
+    Bmd31_N            = blockIt->getData( m_bondLevelMicroDamage31FieldId                , PeridigmField::STEP_N);
+    Bmd31_NP1          = blockIt->getData( m_bondLevelMicroDamage31FieldId                , PeridigmField::STEP_NP1);
+    Bmd32_N            = blockIt->getData( m_bondLevelMicroDamage32FieldId                , PeridigmField::STEP_N);
+    Bmd32_NP1          = blockIt->getData( m_bondLevelMicroDamage32FieldId                , PeridigmField::STEP_NP1);
+    Bmd33_N            = blockIt->getData( m_bondLevelMicroDamage33FieldId                , PeridigmField::STEP_N);
+    Bmd33_NP1          = blockIt->getData( m_bondLevelMicroDamage33FieldId                , PeridigmField::STEP_NP1);
+    Bmd34_N            = blockIt->getData( m_bondLevelMicroDamage34FieldId                , PeridigmField::STEP_N);
+    Bmd34_NP1          = blockIt->getData( m_bondLevelMicroDamage34FieldId                , PeridigmField::STEP_NP1);
+    Bmd35_N            = blockIt->getData( m_bondLevelMicroDamage35FieldId                , PeridigmField::STEP_N);
+    Bmd35_NP1          = blockIt->getData( m_bondLevelMicroDamage35FieldId                , PeridigmField::STEP_NP1);
+    Bmd36_N            = blockIt->getData( m_bondLevelMicroDamage36FieldId                , PeridigmField::STEP_N);
+    Bmd36_NP1          = blockIt->getData( m_bondLevelMicroDamage36FieldId                , PeridigmField::STEP_NP1);
+    Bmd37_N            = blockIt->getData( m_bondLevelMicroDamage37FieldId                , PeridigmField::STEP_N);
+    Bmd37_NP1          = blockIt->getData( m_bondLevelMicroDamage37FieldId                , PeridigmField::STEP_NP1);
+
+    weightedDamage       = blockIt->getData( m_weightedDamageFieldId                 , PeridigmField::STEP_NONE);
+    internalEnergy_N     = blockIt->getData( m_internalEnergyFieldId                 , PeridigmField::STEP_N);
+    internalEnergy_NP1   = blockIt->getData( m_internalEnergyFieldId                 , PeridigmField::STEP_NP1);
+    inelasticEnergy_N    = blockIt->getData( m_inelasticEnergyFieldId                , PeridigmField::STEP_N);
+    inelasticEnergy_NP1  = blockIt->getData( m_inelasticEnergyFieldId                , PeridigmField::STEP_NP1);
+    BinternalEnergy_N    = blockIt->getData( m_bondLevelinternalEnergyFieldId        , PeridigmField::STEP_N);
+    BinternalEnergy_NP1  = blockIt->getData( m_bondLevelinternalEnergyFieldId        , PeridigmField::STEP_NP1);
+    BinelasticEnergy_N   = blockIt->getData( m_bondLevelInelasticEnergyFieldId       , PeridigmField::STEP_N);
+    BinelasticEnergy_NP1 = blockIt->getData( m_bondLevelInelasticEnergyFieldId       , PeridigmField::STEP_NP1);
+    BweightedDamage      = blockIt->getData( m_bondLevelWeightedDamageFieldId       , PeridigmField::STEP_NONE);
+
+  }
+
+
+double *values_ms1_N            ; ms1_N->ExtractView(&values_ms1_N);
+double *values_ms1_NP1          ; ms1_NP1->ExtractView(&values_ms1_NP1);
+double *values_ms2_N            ; ms2_N->ExtractView(&values_ms2_N);
+double *values_ms2_NP1          ; ms2_NP1->ExtractView(&values_ms2_NP1);
+double *values_ms3_N            ; ms3_N->ExtractView(&values_ms3_N);
+double *values_ms3_NP1          ; ms3_NP1->ExtractView(&values_ms3_NP1);
+double *values_ms4_N            ; ms4_N->ExtractView(&values_ms4_N);
+double *values_ms4_NP1          ; ms4_NP1->ExtractView(&values_ms4_NP1);
+double *values_ms5_N            ; ms5_N->ExtractView(&values_ms5_N);
+double *values_ms5_NP1          ; ms5_NP1->ExtractView(&values_ms5_NP1);
+double *values_ms6_N            ; ms6_N->ExtractView(&values_ms6_N);
+double *values_ms6_NP1          ; ms6_NP1->ExtractView(&values_ms6_NP1);
+double *values_ms7_N            ; ms7_N->ExtractView(&values_ms7_N);
+double *values_ms7_NP1          ; ms7_NP1->ExtractView(&values_ms7_NP1);
+double *values_ms8_N            ; ms8_N->ExtractView(&values_ms8_N);
+double *values_ms8_NP1          ; ms8_NP1->ExtractView(&values_ms8_NP1);
+double *values_ms9_N            ; ms9_N->ExtractView(&values_ms9_N);
+double *values_ms9_NP1          ; ms9_NP1->ExtractView(&values_ms9_NP1);
+double *values_ms10_N           ; ms10_N->ExtractView(&values_ms10_N);
+double *values_ms10_NP1         ; ms10_NP1->ExtractView(&values_ms10_NP1);
+
+double *values_ms11_N            ; ms11_N->ExtractView(&values_ms11_N);
+double *values_ms11_NP1          ; ms11_NP1->ExtractView(&values_ms11_NP1);
+double *values_ms12_N            ; ms12_N->ExtractView(&values_ms12_N);
+double *values_ms12_NP1          ; ms12_NP1->ExtractView(&values_ms12_NP1);
+double *values_ms13_N            ; ms13_N->ExtractView(&values_ms13_N);
+double *values_ms13_NP1          ; ms13_NP1->ExtractView(&values_ms13_NP1);
+double *values_ms14_N            ; ms14_N->ExtractView(&values_ms14_N);
+double *values_ms14_NP1          ; ms14_NP1->ExtractView(&values_ms14_NP1);
+double *values_ms15_N            ; ms15_N->ExtractView(&values_ms15_N);
+double *values_ms15_NP1          ; ms15_NP1->ExtractView(&values_ms15_NP1);
+double *values_ms16_N            ; ms16_N->ExtractView(&values_ms16_N);
+double *values_ms16_NP1          ; ms16_NP1->ExtractView(&values_ms16_NP1);
+double *values_ms17_N            ; ms17_N->ExtractView(&values_ms17_N);
+double *values_ms17_NP1          ; ms17_NP1->ExtractView(&values_ms17_NP1);
+double *values_ms18_N            ; ms18_N->ExtractView(&values_ms18_N);
+double *values_ms18_NP1          ; ms18_NP1->ExtractView(&values_ms18_NP1);
+double *values_ms19_N            ; ms19_N->ExtractView(&values_ms19_N);
+double *values_ms19_NP1          ; ms19_NP1->ExtractView(&values_ms19_NP1);
+double *values_ms20_N            ; ms20_N->ExtractView(&values_ms20_N);
+double *values_ms20_NP1          ; ms20_NP1->ExtractView(&values_ms20_NP1);
+
+double *values_ms21_N            ; ms21_N->ExtractView(&values_ms21_N);
+double *values_ms21_NP1          ; ms21_NP1->ExtractView(&values_ms21_NP1);
+double *values_ms22_N            ; ms22_N->ExtractView(&values_ms22_N);
+double *values_ms22_NP1          ; ms22_NP1->ExtractView(&values_ms22_NP1);
+double *values_ms23_N            ; ms23_N->ExtractView(&values_ms23_N);
+double *values_ms23_NP1          ; ms23_NP1->ExtractView(&values_ms23_NP1);
+double *values_ms24_N            ; ms24_N->ExtractView(&values_ms24_N);
+double *values_ms24_NP1          ; ms24_NP1->ExtractView(&values_ms24_NP1);
+double *values_ms25_N            ; ms25_N->ExtractView(&values_ms25_N);
+double *values_ms25_NP1          ; ms25_NP1->ExtractView(&values_ms25_NP1);
+double *values_ms26_N            ; ms26_N->ExtractView(&values_ms26_N);
+double *values_ms26_NP1          ; ms26_NP1->ExtractView(&values_ms26_NP1);
+double *values_ms27_N            ; ms27_N->ExtractView(&values_ms27_N);
+double *values_ms27_NP1          ; ms27_NP1->ExtractView(&values_ms27_NP1);
+double *values_ms28_N            ; ms28_N->ExtractView(&values_ms28_N);
+double *values_ms28_NP1          ; ms28_NP1->ExtractView(&values_ms28_NP1);
+double *values_ms29_N            ; ms29_N->ExtractView(&values_ms29_N);
+double *values_ms29_NP1          ; ms29_NP1->ExtractView(&values_ms29_NP1);
+double *values_ms30_N            ; ms30_N->ExtractView(&values_ms30_N);
+double *values_ms30_NP1          ; ms30_NP1->ExtractView(&values_ms30_NP1);
+
+double *values_ms31_N            ; ms31_N->ExtractView(&values_ms31_N);
+double *values_ms31_NP1          ; ms31_NP1->ExtractView(&values_ms31_NP1);
+double *values_ms32_N            ; ms32_N->ExtractView(&values_ms32_N);
+double *values_ms32_NP1          ; ms32_NP1->ExtractView(&values_ms32_NP1);
+double *values_ms33_N            ; ms33_N->ExtractView(&values_ms33_N);
+double *values_ms33_NP1          ; ms33_NP1->ExtractView(&values_ms33_NP1);
+double *values_ms34_N            ; ms34_N->ExtractView(&values_ms34_N);
+double *values_ms34_NP1          ; ms34_NP1->ExtractView(&values_ms34_NP1);
+double *values_ms35_N            ; ms35_N->ExtractView(&values_ms35_N);
+double *values_ms35_NP1          ; ms35_NP1->ExtractView(&values_ms35_NP1);
+double *values_ms36_N            ; ms36_N->ExtractView(&values_ms36_N);
+double *values_ms36_NP1          ; ms36_NP1->ExtractView(&values_ms36_NP1);
+double *values_ms37_N            ; ms37_N->ExtractView(&values_ms37_N);
+double *values_ms37_NP1          ; ms37_NP1->ExtractView(&values_ms37_NP1);
+double *values_ms38_N            ; ms38_N->ExtractView(&values_ms38_N);
+double *values_ms38_NP1          ; ms38_NP1->ExtractView(&values_ms38_NP1);
+double *values_ms39_N            ; ms39_N->ExtractView(&values_ms39_N);
+double *values_ms39_NP1          ; ms39_NP1->ExtractView(&values_ms39_NP1);
+double *values_ms40_N            ; ms40_N->ExtractView(&values_ms40_N);
+double *values_ms40_NP1          ; ms40_NP1->ExtractView(&values_ms40_NP1);
+
+double *values_ms41_N            ; ms41_N->ExtractView(&values_ms41_N);
+double *values_ms41_NP1          ; ms41_NP1->ExtractView(&values_ms41_NP1);
+double *values_ms42_N            ; ms42_N->ExtractView(&values_ms42_N);
+double *values_ms42_NP1          ; ms42_NP1->ExtractView(&values_ms42_NP1);
+double *values_ms43_N            ; ms43_N->ExtractView(&values_ms43_N);
+double *values_ms43_NP1          ; ms43_NP1->ExtractView(&values_ms43_NP1);
+double *values_ms44_N            ; ms44_N->ExtractView(&values_ms44_N);
+double *values_ms44_NP1          ; ms44_NP1->ExtractView(&values_ms44_NP1);
+double *values_ms45_N            ; ms45_N->ExtractView(&values_ms45_N);
+double *values_ms45_NP1          ; ms45_NP1->ExtractView(&values_ms45_NP1);
+double *values_ms46_N            ; ms46_N->ExtractView(&values_ms46_N);
+double *values_ms46_NP1          ; ms46_NP1->ExtractView(&values_ms46_NP1);
+double *values_ms47_N            ; ms47_N->ExtractView(&values_ms47_N);
+double *values_ms47_NP1          ; ms47_NP1->ExtractView(&values_ms47_NP1);
+double *values_ms48_N            ; ms48_N->ExtractView(&values_ms48_N);
+double *values_ms48_NP1          ; ms48_NP1->ExtractView(&values_ms48_NP1);
+double *values_ms49_N            ; ms49_N->ExtractView(&values_ms49_N);
+double *values_ms49_NP1          ; ms49_NP1->ExtractView(&values_ms49_NP1);
+double *values_ms50_N            ; ms50_N->ExtractView(&values_ms50_N);
+double *values_ms50_NP1          ; ms50_NP1->ExtractView(&values_ms50_NP1);
+
+double *values_ms51_N            ; ms51_N->ExtractView(&values_ms51_N);
+double *values_ms51_NP1          ; ms51_NP1->ExtractView(&values_ms51_NP1);
+double *values_ms52_N            ; ms52_N->ExtractView(&values_ms52_N);
+double *values_ms52_NP1          ; ms52_NP1->ExtractView(&values_ms52_NP1);
+double *values_ms53_N            ; ms53_N->ExtractView(&values_ms53_N);
+double *values_ms53_NP1          ; ms53_NP1->ExtractView(&values_ms53_NP1);
+double *values_ms54_N            ; ms54_N->ExtractView(&values_ms54_N);
+double *values_ms54_NP1          ; ms54_NP1->ExtractView(&values_ms54_NP1);
+double *values_ms55_N            ; ms55_N->ExtractView(&values_ms55_N);
+double *values_ms55_NP1          ; ms55_NP1->ExtractView(&values_ms55_NP1);
+double *values_ms56_N            ; ms56_N->ExtractView(&values_ms56_N);
+double *values_ms56_NP1          ; ms56_NP1->ExtractView(&values_ms56_NP1);
+double *values_ms57_N            ; ms57_N->ExtractView(&values_ms57_N);
+double *values_ms57_NP1          ; ms57_NP1->ExtractView(&values_ms57_NP1);
+double *values_ms58_N            ; ms58_N->ExtractView(&values_ms58_N);
+double *values_ms58_NP1          ; ms58_NP1->ExtractView(&values_ms58_NP1);
+double *values_ms59_N            ; ms59_N->ExtractView(&values_ms59_N);
+double *values_ms59_NP1          ; ms59_NP1->ExtractView(&values_ms59_NP1);
+double *values_ms60_N            ; ms60_N->ExtractView(&values_ms60_N);
+double *values_ms60_NP1          ; ms60_NP1->ExtractView(&values_ms60_NP1);
+
+double *values_ms61_N            ; ms61_N->ExtractView(&values_ms61_N);
+double *values_ms61_NP1          ; ms61_NP1->ExtractView(&values_ms61_NP1);
+double *values_ms62_N            ; ms62_N->ExtractView(&values_ms62_N);
+double *values_ms62_NP1          ; ms62_NP1->ExtractView(&values_ms62_NP1);
+double *values_ms63_N            ; ms63_N->ExtractView(&values_ms63_N);
+double *values_ms63_NP1          ; ms63_NP1->ExtractView(&values_ms63_NP1);
+double *values_ms64_N            ; ms64_N->ExtractView(&values_ms64_N);
+double *values_ms64_NP1          ; ms64_NP1->ExtractView(&values_ms64_NP1);
+double *values_ms65_N            ; ms65_N->ExtractView(&values_ms65_N);
+double *values_ms65_NP1          ; ms65_NP1->ExtractView(&values_ms65_NP1);
+double *values_ms66_N            ; ms66_N->ExtractView(&values_ms66_N);
+double *values_ms66_NP1          ; ms66_NP1->ExtractView(&values_ms66_NP1);
+double *values_ms67_N            ; ms67_N->ExtractView(&values_ms67_N);
+double *values_ms67_NP1          ; ms67_NP1->ExtractView(&values_ms67_NP1);
+double *values_ms68_N            ; ms68_N->ExtractView(&values_ms68_N);
+double *values_ms68_NP1          ; ms68_NP1->ExtractView(&values_ms68_NP1);
+double *values_ms69_N            ; ms69_N->ExtractView(&values_ms69_N);
+double *values_ms69_NP1          ; ms69_NP1->ExtractView(&values_ms69_NP1);
+double *values_ms70_N            ; ms70_N->ExtractView(&values_ms70_N);
+double *values_ms70_NP1          ; ms70_NP1->ExtractView(&values_ms70_NP1);
+
+double *values_ms71_N            ; ms71_N->ExtractView(&values_ms71_N);
+double *values_ms71_NP1          ; ms71_NP1->ExtractView(&values_ms71_NP1);
+double *values_ms72_N            ; ms72_N->ExtractView(&values_ms72_N);
+double *values_ms72_NP1          ; ms72_NP1->ExtractView(&values_ms72_NP1);
+double *values_ms73_N            ; ms73_N->ExtractView(&values_ms73_N);
+double *values_ms73_NP1          ; ms73_NP1->ExtractView(&values_ms73_NP1);
+double *values_ms74_N            ; ms74_N->ExtractView(&values_ms74_N);
+double *values_ms74_NP1          ; ms74_NP1->ExtractView(&values_ms74_NP1);
+double *values_ms75_N            ; ms75_N->ExtractView(&values_ms75_N);
+double *values_ms75_NP1          ; ms75_NP1->ExtractView(&values_ms75_NP1);
+double *values_ms76_N            ; ms76_N->ExtractView(&values_ms76_N);
+double *values_ms76_NP1          ; ms76_NP1->ExtractView(&values_ms76_NP1);
+double *values_ms77_N            ; ms77_N->ExtractView(&values_ms77_N);
+double *values_ms77_NP1          ; ms77_NP1->ExtractView(&values_ms77_NP1);
+double *values_ms78_N            ; ms78_N->ExtractView(&values_ms78_N);
+double *values_ms78_NP1          ; ms78_NP1->ExtractView(&values_ms78_NP1);
+double *values_ms79_N            ; ms79_N->ExtractView(&values_ms79_N);
+double *values_ms79_NP1          ; ms79_NP1->ExtractView(&values_ms79_NP1);
+double *values_ms80_N            ; ms80_N->ExtractView(&values_ms80_N);
+double *values_ms80_NP1          ; ms80_NP1->ExtractView(&values_ms80_NP1);
+
+double *values_ms81_N            ; ms81_N->ExtractView(&values_ms81_N);
+double *values_ms81_NP1          ; ms81_NP1->ExtractView(&values_ms81_NP1);
+double *values_ms82_N            ; ms82_N->ExtractView(&values_ms82_N);
+double *values_ms82_NP1          ; ms82_NP1->ExtractView(&values_ms82_NP1);
+double *values_ms83_N            ; ms83_N->ExtractView(&values_ms83_N);
+double *values_ms83_NP1          ; ms83_NP1->ExtractView(&values_ms83_NP1);
+double *values_ms84_N            ; ms84_N->ExtractView(&values_ms84_N);
+double *values_ms84_NP1          ; ms84_NP1->ExtractView(&values_ms84_NP1);
+double *values_ms85_N            ; ms85_N->ExtractView(&values_ms85_N);
+double *values_ms85_NP1          ; ms85_NP1->ExtractView(&values_ms85_NP1);
+double *values_ms86_N            ; ms86_N->ExtractView(&values_ms86_N);
+double *values_ms86_NP1          ; ms86_NP1->ExtractView(&values_ms86_NP1);
+double *values_ms87_N            ; ms87_N->ExtractView(&values_ms87_N);
+double *values_ms87_NP1          ; ms87_NP1->ExtractView(&values_ms87_NP1);
+double *values_ms88_N            ; ms88_N->ExtractView(&values_ms88_N);
+double *values_ms88_NP1          ; ms88_NP1->ExtractView(&values_ms88_NP1);
+double *values_ms89_N            ; ms89_N->ExtractView(&values_ms89_N);
+double *values_ms89_NP1          ; ms89_NP1->ExtractView(&values_ms89_NP1);
+double *values_ms90_N            ; ms90_N->ExtractView(&values_ms90_N);
+double *values_ms90_NP1          ; ms90_NP1->ExtractView(&values_ms90_NP1);
+
+double *values_ms91_N            ; ms91_N->ExtractView(&values_ms91_N);
+double *values_ms91_NP1          ; ms91_NP1->ExtractView(&values_ms91_NP1);
+double *values_ms92_N            ; ms92_N->ExtractView(&values_ms92_N);
+double *values_ms92_NP1          ; ms92_NP1->ExtractView(&values_ms92_NP1);
+double *values_ms93_N            ; ms93_N->ExtractView(&values_ms93_N);
+double *values_ms93_NP1          ; ms93_NP1->ExtractView(&values_ms93_NP1);
+double *values_ms94_N            ; ms94_N->ExtractView(&values_ms94_N);
+double *values_ms94_NP1          ; ms94_NP1->ExtractView(&values_ms94_NP1);
+double *values_ms95_N            ; ms95_N->ExtractView(&values_ms95_N);
+double *values_ms95_NP1          ; ms95_NP1->ExtractView(&values_ms95_NP1);
+double *values_ms96_N            ; ms96_N->ExtractView(&values_ms96_N);
+double *values_ms96_NP1          ; ms96_NP1->ExtractView(&values_ms96_NP1);
+double *values_ms97_N            ; ms97_N->ExtractView(&values_ms97_N);
+double *values_ms97_NP1          ; ms97_NP1->ExtractView(&values_ms97_NP1);
+double *values_ms98_N            ; ms98_N->ExtractView(&values_ms98_N);
+double *values_ms98_NP1          ; ms98_NP1->ExtractView(&values_ms98_NP1);
+double *values_ms99_N            ; ms99_N->ExtractView(&values_ms99_N);
+double *values_ms99_NP1          ; ms99_NP1->ExtractView(&values_ms99_NP1);
+double *values_ms100_N            ; ms100_N->ExtractView(&values_ms100_N);
+double *values_ms100_NP1          ; ms100_NP1->ExtractView(&values_ms100_NP1);
+
+double *values_ms101_N            ; ms101_N->ExtractView(&values_ms101_N);
+double *values_ms101_NP1          ; ms101_NP1->ExtractView(&values_ms101_NP1);
+double *values_ms102_N            ; ms102_N->ExtractView(&values_ms102_N);
+double *values_ms102_NP1          ; ms102_NP1->ExtractView(&values_ms102_NP1);
+double *values_ms103_N            ; ms103_N->ExtractView(&values_ms103_N);
+double *values_ms103_NP1          ; ms103_NP1->ExtractView(&values_ms103_NP1);
+double *values_ms104_N            ; ms104_N->ExtractView(&values_ms104_N);
+double *values_ms104_NP1          ; ms104_NP1->ExtractView(&values_ms104_NP1);
+double *values_ms105_N            ; ms105_N->ExtractView(&values_ms105_N);
+double *values_ms105_NP1          ; ms105_NP1->ExtractView(&values_ms105_NP1);
+double *values_ms106_N            ; ms106_N->ExtractView(&values_ms106_N);
+double *values_ms106_NP1          ; ms106_NP1->ExtractView(&values_ms106_NP1);
+double *values_ms107_N            ; ms107_N->ExtractView(&values_ms107_N);
+double *values_ms107_NP1          ; ms107_NP1->ExtractView(&values_ms107_NP1);
+double *values_ms108_N            ; ms108_N->ExtractView(&values_ms108_N);
+double *values_ms108_NP1          ; ms108_NP1->ExtractView(&values_ms108_NP1);
+double *values_ms109_N            ; ms109_N->ExtractView(&values_ms109_N);
+double *values_ms109_NP1          ; ms109_NP1->ExtractView(&values_ms109_NP1);
+double *values_ms110_N           ; ms110_N->ExtractView(&values_ms110_N);
+double *values_ms110_NP1         ; ms110_NP1->ExtractView(&values_ms110_NP1);
+
+double *values_ms111_N            ; ms111_N->ExtractView(&values_ms111_N);
+double *values_ms111_NP1          ; ms111_NP1->ExtractView(&values_ms111_NP1);
+double *values_ms112_N            ; ms112_N->ExtractView(&values_ms112_N);
+double *values_ms112_NP1          ; ms112_NP1->ExtractView(&values_ms112_NP1);
+double *values_ms113_N            ; ms113_N->ExtractView(&values_ms113_N);
+double *values_ms113_NP1          ; ms113_NP1->ExtractView(&values_ms113_NP1);
+double *values_ms114_N            ; ms114_N->ExtractView(&values_ms114_N);
+double *values_ms114_NP1          ; ms114_NP1->ExtractView(&values_ms114_NP1);
+double *values_ms115_N            ; ms115_N->ExtractView(&values_ms115_N);
+double *values_ms115_NP1          ; ms115_NP1->ExtractView(&values_ms115_NP1);
+double *values_ms116_N            ; ms116_N->ExtractView(&values_ms116_N);
+double *values_ms116_NP1          ; ms116_NP1->ExtractView(&values_ms116_NP1);
+double *values_ms117_N            ; ms117_N->ExtractView(&values_ms117_N);
+double *values_ms117_NP1          ; ms117_NP1->ExtractView(&values_ms117_NP1);
+double *values_ms118_N            ; ms118_N->ExtractView(&values_ms118_N);
+double *values_ms118_NP1          ; ms118_NP1->ExtractView(&values_ms118_NP1);
+double *values_ms119_N            ; ms119_N->ExtractView(&values_ms119_N);
+double *values_ms119_NP1          ; ms119_NP1->ExtractView(&values_ms119_NP1);
+double *values_ms120_N            ; ms120_N->ExtractView(&values_ms120_N);
+double *values_ms120_NP1          ; ms120_NP1->ExtractView(&values_ms120_NP1);
+
+double *values_ms121_N            ; ms121_N->ExtractView(&values_ms121_N);
+double *values_ms121_NP1          ; ms121_NP1->ExtractView(&values_ms121_NP1);
+double *values_ms122_N            ; ms122_N->ExtractView(&values_ms122_N);
+double *values_ms122_NP1          ; ms122_NP1->ExtractView(&values_ms122_NP1);
+double *values_ms123_N            ; ms123_N->ExtractView(&values_ms123_N);
+double *values_ms123_NP1          ; ms123_NP1->ExtractView(&values_ms123_NP1);
+double *values_ms124_N            ; ms124_N->ExtractView(&values_ms124_N);
+double *values_ms124_NP1          ; ms124_NP1->ExtractView(&values_ms124_NP1);
+double *values_ms125_N            ; ms125_N->ExtractView(&values_ms125_N);
+double *values_ms125_NP1          ; ms125_NP1->ExtractView(&values_ms125_NP1);
+double *values_ms126_N            ; ms126_N->ExtractView(&values_ms126_N);
+double *values_ms126_NP1          ; ms126_NP1->ExtractView(&values_ms126_NP1);
+double *values_ms127_N            ; ms127_N->ExtractView(&values_ms127_N);
+double *values_ms127_NP1          ; ms127_NP1->ExtractView(&values_ms127_NP1);
+double *values_ms128_N            ; ms128_N->ExtractView(&values_ms128_N);
+double *values_ms128_NP1          ; ms128_NP1->ExtractView(&values_ms128_NP1);
+double *values_ms129_N            ; ms129_N->ExtractView(&values_ms129_N);
+double *values_ms129_NP1          ; ms129_NP1->ExtractView(&values_ms129_NP1);
+double *values_ms130_N            ; ms130_N->ExtractView(&values_ms130_N);
+double *values_ms130_NP1          ; ms130_NP1->ExtractView(&values_ms130_NP1);
+
+double *values_ms131_N            ; ms131_N->ExtractView(&values_ms131_N);
+double *values_ms131_NP1          ; ms131_NP1->ExtractView(&values_ms131_NP1);
+double *values_ms132_N            ; ms132_N->ExtractView(&values_ms132_N);
+double *values_ms132_NP1          ; ms132_NP1->ExtractView(&values_ms132_NP1);
+double *values_ms133_N            ; ms133_N->ExtractView(&values_ms133_N);
+double *values_ms133_NP1          ; ms133_NP1->ExtractView(&values_ms133_NP1);
+double *values_ms134_N            ; ms134_N->ExtractView(&values_ms134_N);
+double *values_ms134_NP1          ; ms134_NP1->ExtractView(&values_ms134_NP1);
+double *values_ms135_N            ; ms135_N->ExtractView(&values_ms135_N);
+double *values_ms135_NP1          ; ms135_NP1->ExtractView(&values_ms135_NP1);
+double *values_ms136_N            ; ms136_N->ExtractView(&values_ms136_N);
+double *values_ms136_NP1          ; ms136_NP1->ExtractView(&values_ms136_NP1);
+double *values_ms137_N            ; ms137_N->ExtractView(&values_ms137_N);
+double *values_ms137_NP1          ; ms137_NP1->ExtractView(&values_ms137_NP1);
+double *values_ms138_N            ; ms138_N->ExtractView(&values_ms138_N);
+double *values_ms138_NP1          ; ms138_NP1->ExtractView(&values_ms138_NP1);
+double *values_ms139_N            ; ms139_N->ExtractView(&values_ms139_N);
+double *values_ms139_NP1          ; ms139_NP1->ExtractView(&values_ms139_NP1);
+double *values_ms140_N            ; ms140_N->ExtractView(&values_ms140_N);
+double *values_ms140_NP1          ; ms140_NP1->ExtractView(&values_ms140_NP1);
+
+double *values_ms141_N            ; ms141_N->ExtractView(&values_ms141_N);
+double *values_ms141_NP1          ; ms141_NP1->ExtractView(&values_ms141_NP1);
+double *values_ms142_N            ; ms142_N->ExtractView(&values_ms142_N);
+double *values_ms142_NP1          ; ms142_NP1->ExtractView(&values_ms142_NP1);
+double *values_ms143_N            ; ms143_N->ExtractView(&values_ms143_N);
+double *values_ms143_NP1          ; ms143_NP1->ExtractView(&values_ms143_NP1);
+double *values_ms144_N            ; ms144_N->ExtractView(&values_ms144_N);
+double *values_ms144_NP1          ; ms144_NP1->ExtractView(&values_ms144_NP1);
+double *values_ms145_N            ; ms145_N->ExtractView(&values_ms145_N);
+double *values_ms145_NP1          ; ms145_NP1->ExtractView(&values_ms145_NP1);
+double *values_ms146_N            ; ms146_N->ExtractView(&values_ms146_N);
+double *values_ms146_NP1          ; ms146_NP1->ExtractView(&values_ms146_NP1);
+double *values_ms147_N            ; ms147_N->ExtractView(&values_ms147_N);
+double *values_ms147_NP1          ; ms147_NP1->ExtractView(&values_ms147_NP1);
+double *values_ms148_N            ; ms148_N->ExtractView(&values_ms148_N);
+double *values_ms148_NP1          ; ms148_NP1->ExtractView(&values_ms148_NP1);
+double *values_ms149_N            ; ms149_N->ExtractView(&values_ms149_N);
+double *values_ms149_NP1          ; ms149_NP1->ExtractView(&values_ms149_NP1);
+double *values_ms150_N            ; ms150_N->ExtractView(&values_ms150_N);
+double *values_ms150_NP1          ; ms150_NP1->ExtractView(&values_ms150_NP1);
+
+double *values_ms151_N            ; ms151_N->ExtractView(&values_ms151_N);
+double *values_ms151_NP1          ; ms151_NP1->ExtractView(&values_ms151_NP1);
+double *values_ms152_N            ; ms152_N->ExtractView(&values_ms152_N);
+double *values_ms152_NP1          ; ms152_NP1->ExtractView(&values_ms152_NP1);
+double *values_ms153_N            ; ms153_N->ExtractView(&values_ms153_N);
+double *values_ms153_NP1          ; ms153_NP1->ExtractView(&values_ms153_NP1);
+double *values_ms154_N            ; ms154_N->ExtractView(&values_ms154_N);
+double *values_ms154_NP1          ; ms154_NP1->ExtractView(&values_ms154_NP1);
+double *values_ms155_N            ; ms155_N->ExtractView(&values_ms155_N);
+double *values_ms155_NP1          ; ms155_NP1->ExtractView(&values_ms155_NP1);
+double *values_ms156_N            ; ms156_N->ExtractView(&values_ms156_N);
+double *values_ms156_NP1          ; ms156_NP1->ExtractView(&values_ms156_NP1);
+double *values_ms157_N            ; ms157_N->ExtractView(&values_ms157_N);
+double *values_ms157_NP1          ; ms157_NP1->ExtractView(&values_ms157_NP1);
+double *values_ms158_N            ; ms158_N->ExtractView(&values_ms158_N);
+double *values_ms158_NP1          ; ms158_NP1->ExtractView(&values_ms158_NP1);
+double *values_ms159_N            ; ms159_N->ExtractView(&values_ms159_N);
+double *values_ms159_NP1          ; ms159_NP1->ExtractView(&values_ms159_NP1);
+double *values_ms160_N            ; ms160_N->ExtractView(&values_ms160_N);
+double *values_ms160_NP1          ; ms160_NP1->ExtractView(&values_ms160_NP1);
+
+double *values_ms161_N            ; ms161_N->ExtractView(&values_ms161_N);
+double *values_ms161_NP1          ; ms161_NP1->ExtractView(&values_ms161_NP1);
+double *values_ms162_N            ; ms162_N->ExtractView(&values_ms162_N);
+double *values_ms162_NP1          ; ms162_NP1->ExtractView(&values_ms162_NP1);
+double *values_ms163_N            ; ms163_N->ExtractView(&values_ms163_N);
+double *values_ms163_NP1          ; ms163_NP1->ExtractView(&values_ms163_NP1);
+double *values_ms164_N            ; ms164_N->ExtractView(&values_ms164_N);
+double *values_ms164_NP1          ; ms164_NP1->ExtractView(&values_ms164_NP1);
+double *values_ms165_N            ; ms165_N->ExtractView(&values_ms165_N);
+double *values_ms165_NP1          ; ms165_NP1->ExtractView(&values_ms165_NP1);
+double *values_ms166_N            ; ms166_N->ExtractView(&values_ms166_N);
+double *values_ms166_NP1          ; ms166_NP1->ExtractView(&values_ms166_NP1);
+double *values_ms167_N            ; ms167_N->ExtractView(&values_ms167_N);
+double *values_ms167_NP1          ; ms167_NP1->ExtractView(&values_ms167_NP1);
+double *values_ms168_N            ; ms168_N->ExtractView(&values_ms168_N);
+double *values_ms168_NP1          ; ms168_NP1->ExtractView(&values_ms168_NP1);
+double *values_ms169_N            ; ms169_N->ExtractView(&values_ms169_N);
+double *values_ms169_NP1          ; ms169_NP1->ExtractView(&values_ms169_NP1);
+double *values_ms170_N            ; ms170_N->ExtractView(&values_ms170_N);
+double *values_ms170_NP1          ; ms170_NP1->ExtractView(&values_ms170_NP1);
+
+double *values_ms171_N            ; ms171_N->ExtractView(&values_ms171_N);
+double *values_ms171_NP1          ; ms171_NP1->ExtractView(&values_ms171_NP1);
+double *values_ms172_N            ; ms172_N->ExtractView(&values_ms172_N);
+double *values_ms172_NP1          ; ms172_NP1->ExtractView(&values_ms172_NP1);
+double *values_ms173_N            ; ms173_N->ExtractView(&values_ms173_N);
+double *values_ms173_NP1          ; ms173_NP1->ExtractView(&values_ms173_NP1);
+double *values_ms174_N            ; ms174_N->ExtractView(&values_ms174_N);
+double *values_ms174_NP1          ; ms174_NP1->ExtractView(&values_ms174_NP1);
+double *values_ms175_N            ; ms175_N->ExtractView(&values_ms175_N);
+double *values_ms175_NP1          ; ms175_NP1->ExtractView(&values_ms175_NP1);
+double *values_ms176_N            ; ms176_N->ExtractView(&values_ms176_N);
+double *values_ms176_NP1          ; ms176_NP1->ExtractView(&values_ms176_NP1);
+double *values_ms177_N            ; ms177_N->ExtractView(&values_ms177_N);
+double *values_ms177_NP1          ; ms177_NP1->ExtractView(&values_ms177_NP1);
+double *values_ms178_N            ; ms178_N->ExtractView(&values_ms178_N);
+double *values_ms178_NP1          ; ms178_NP1->ExtractView(&values_ms178_NP1);
+double *values_ms179_N            ; ms179_N->ExtractView(&values_ms179_N);
+double *values_ms179_NP1          ; ms179_NP1->ExtractView(&values_ms179_NP1);
+double *values_ms180_N            ; ms180_N->ExtractView(&values_ms180_N);
+double *values_ms180_NP1          ; ms180_NP1->ExtractView(&values_ms180_NP1);
+
+double *values_ms181_N            ; ms181_N->ExtractView(&values_ms181_N);
+double *values_ms181_NP1          ; ms181_NP1->ExtractView(&values_ms181_NP1);
+double *values_ms182_N            ; ms182_N->ExtractView(&values_ms182_N);
+double *values_ms182_NP1          ; ms182_NP1->ExtractView(&values_ms182_NP1);
+double *values_ms183_N            ; ms183_N->ExtractView(&values_ms183_N);
+double *values_ms183_NP1          ; ms183_NP1->ExtractView(&values_ms183_NP1);
+double *values_ms184_N            ; ms184_N->ExtractView(&values_ms184_N);
+double *values_ms184_NP1          ; ms184_NP1->ExtractView(&values_ms184_NP1);
+double *values_ms185_N            ; ms185_N->ExtractView(&values_ms185_N);
+double *values_ms185_NP1          ; ms185_NP1->ExtractView(&values_ms185_NP1);
+double *values_ms186_N            ; ms186_N->ExtractView(&values_ms186_N);
+double *values_ms186_NP1          ; ms186_NP1->ExtractView(&values_ms186_NP1);
+double *values_ms187_N            ; ms187_N->ExtractView(&values_ms187_N);
+double *values_ms187_NP1          ; ms187_NP1->ExtractView(&values_ms187_NP1);
+double *values_ms188_N            ; ms188_N->ExtractView(&values_ms188_N);
+double *values_ms188_NP1          ; ms188_NP1->ExtractView(&values_ms188_NP1);
+double *values_ms189_N            ; ms189_N->ExtractView(&values_ms189_N);
+double *values_ms189_NP1          ; ms189_NP1->ExtractView(&values_ms189_NP1);
+
+
+// Micro Damage
+
+double *values_md1_N            ; md1_N->ExtractView(&values_md1_N);
+double *values_md1_NP1          ; md1_NP1->ExtractView(&values_md1_NP1);
+double *values_md2_N            ; md2_N->ExtractView(&values_md2_N);
+double *values_md2_NP1          ; md2_NP1->ExtractView(&values_md2_NP1);
+double *values_md3_N            ; md3_N->ExtractView(&values_md3_N);
+double *values_md3_NP1          ; md3_NP1->ExtractView(&values_md3_NP1);
+double *values_md4_N            ; md4_N->ExtractView(&values_md4_N);
+double *values_md4_NP1          ; md4_NP1->ExtractView(&values_md4_NP1);
+double *values_md5_N            ; md5_N->ExtractView(&values_md5_N);
+double *values_md5_NP1          ; md5_NP1->ExtractView(&values_md5_NP1);
+double *values_md6_N            ; md6_N->ExtractView(&values_md6_N);
+double *values_md6_NP1          ; md6_NP1->ExtractView(&values_md6_NP1);
+double *values_md7_N            ; md7_N->ExtractView(&values_md7_N);
+double *values_md7_NP1          ; md7_NP1->ExtractView(&values_md7_NP1);
+double *values_md8_N            ; md8_N->ExtractView(&values_md8_N);
+double *values_md8_NP1          ; md8_NP1->ExtractView(&values_md8_NP1);
+double *values_md9_N            ; md9_N->ExtractView(&values_md9_N);
+double *values_md9_NP1          ; md9_NP1->ExtractView(&values_md9_NP1);
+double *values_md10_N           ; md10_N->ExtractView(&values_md10_N);
+double *values_md10_NP1         ; md10_NP1->ExtractView(&values_md10_NP1);
+
+double *values_md11_N            ; md11_N->ExtractView(&values_md11_N);
+double *values_md11_NP1          ; md11_NP1->ExtractView(&values_md11_NP1);
+double *values_md12_N            ; md12_N->ExtractView(&values_md12_N);
+double *values_md12_NP1          ; md12_NP1->ExtractView(&values_md12_NP1);
+double *values_md13_N            ; md13_N->ExtractView(&values_md13_N);
+double *values_md13_NP1          ; md13_NP1->ExtractView(&values_md13_NP1);
+double *values_md14_N            ; md14_N->ExtractView(&values_md14_N);
+double *values_md14_NP1          ; md14_NP1->ExtractView(&values_md14_NP1);
+double *values_md15_N            ; md15_N->ExtractView(&values_md15_N);
+double *values_md15_NP1          ; md15_NP1->ExtractView(&values_md15_NP1);
+double *values_md16_N            ; md16_N->ExtractView(&values_md16_N);
+double *values_md16_NP1          ; md16_NP1->ExtractView(&values_md16_NP1);
+double *values_md17_N            ; md17_N->ExtractView(&values_md17_N);
+double *values_md17_NP1          ; md17_NP1->ExtractView(&values_md17_NP1);
+double *values_md18_N            ; md18_N->ExtractView(&values_md18_N);
+double *values_md18_NP1          ; md18_NP1->ExtractView(&values_md18_NP1);
+double *values_md19_N            ; md19_N->ExtractView(&values_md19_N);
+double *values_md19_NP1          ; md19_NP1->ExtractView(&values_md19_NP1);
+double *values_md20_N            ; md20_N->ExtractView(&values_md20_N);
+double *values_md20_NP1          ; md20_NP1->ExtractView(&values_md20_NP1);
+
+double *values_md21_N            ; md21_N->ExtractView(&values_md21_N);
+double *values_md21_NP1          ; md21_NP1->ExtractView(&values_md21_NP1);
+double *values_md22_N            ; md22_N->ExtractView(&values_md22_N);
+double *values_md22_NP1          ; md22_NP1->ExtractView(&values_md22_NP1);
+double *values_md23_N            ; md23_N->ExtractView(&values_md23_N);
+double *values_md23_NP1          ; md23_NP1->ExtractView(&values_md23_NP1);
+double *values_md24_N            ; md24_N->ExtractView(&values_md24_N);
+double *values_md24_NP1          ; md24_NP1->ExtractView(&values_md24_NP1);
+double *values_md25_N            ; md25_N->ExtractView(&values_md25_N);
+double *values_md25_NP1          ; md25_NP1->ExtractView(&values_md25_NP1);
+double *values_md26_N            ; md26_N->ExtractView(&values_md26_N);
+double *values_md26_NP1          ; md26_NP1->ExtractView(&values_md26_NP1);
+double *values_md27_N            ; md27_N->ExtractView(&values_md27_N);
+double *values_md27_NP1          ; md27_NP1->ExtractView(&values_md27_NP1);
+double *values_md28_N            ; md28_N->ExtractView(&values_md28_N);
+double *values_md28_NP1          ; md28_NP1->ExtractView(&values_md28_NP1);
+double *values_md29_N            ; md29_N->ExtractView(&values_md29_N);
+double *values_md29_NP1          ; md29_NP1->ExtractView(&values_md29_NP1);
+double *values_md30_N            ; md30_N->ExtractView(&values_md30_N);
+double *values_md30_NP1          ; md30_NP1->ExtractView(&values_md30_NP1);
+
+double *values_md31_N            ; md31_N->ExtractView(&values_md31_N);
+double *values_md31_NP1          ; md31_NP1->ExtractView(&values_md31_NP1);
+double *values_md32_N            ; md32_N->ExtractView(&values_md32_N);
+double *values_md32_NP1          ; md32_NP1->ExtractView(&values_md32_NP1);
+double *values_md33_N            ; md33_N->ExtractView(&values_md33_N);
+double *values_md33_NP1          ; md33_NP1->ExtractView(&values_md33_NP1);
+double *values_md34_N            ; md34_N->ExtractView(&values_md34_N);
+double *values_md34_NP1          ; md34_NP1->ExtractView(&values_md34_NP1);
+double *values_md35_N            ; md35_N->ExtractView(&values_md35_N);
+double *values_md35_NP1          ; md35_NP1->ExtractView(&values_md35_NP1);
+double *values_md36_N            ; md36_N->ExtractView(&values_md36_N);
+double *values_md36_NP1          ; md36_NP1->ExtractView(&values_md36_NP1);
+double *values_md37_N            ; md37_N->ExtractView(&values_md37_N);
+double *values_md37_NP1          ; md37_NP1->ExtractView(&values_md37_NP1);
+
+//// Bond Level Quantites ////
+double *values_Bms1_N            ; Bms1_N->ExtractView(&values_Bms1_N);
+double *values_Bms1_NP1          ; Bms1_NP1->ExtractView(&values_Bms1_NP1);
+double *values_Bms2_N            ; Bms2_N->ExtractView(&values_Bms2_N);
+double *values_Bms2_NP1          ; Bms2_NP1->ExtractView(&values_Bms2_NP1);
+double *values_Bms3_N            ; Bms3_N->ExtractView(&values_Bms3_N);
+double *values_Bms3_NP1          ; Bms3_NP1->ExtractView(&values_Bms3_NP1);
+double *values_Bms4_N            ; Bms4_N->ExtractView(&values_Bms4_N);
+double *values_Bms4_NP1          ; Bms4_NP1->ExtractView(&values_Bms4_NP1);
+double *values_Bms5_N            ; Bms5_N->ExtractView(&values_Bms5_N);
+double *values_Bms5_NP1          ; Bms5_NP1->ExtractView(&values_Bms5_NP1);
+double *values_Bms6_N            ; Bms6_N->ExtractView(&values_Bms6_N);
+double *values_Bms6_NP1          ; Bms6_NP1->ExtractView(&values_Bms6_NP1);
+double *values_Bms7_N            ; Bms7_N->ExtractView(&values_Bms7_N);
+double *values_Bms7_NP1          ; Bms7_NP1->ExtractView(&values_Bms7_NP1);
+double *values_Bms8_N            ; Bms8_N->ExtractView(&values_Bms8_N);
+double *values_Bms8_NP1          ; Bms8_NP1->ExtractView(&values_Bms8_NP1);
+double *values_Bms9_N            ; Bms9_N->ExtractView(&values_Bms9_N);
+double *values_Bms9_NP1          ; Bms9_NP1->ExtractView(&values_Bms9_NP1);
+double *values_Bms10_N           ; Bms10_N->ExtractView(&values_Bms10_N);
+double *values_Bms10_NP1         ; Bms10_NP1->ExtractView(&values_Bms10_NP1);
+
+double *values_Bms11_N            ; Bms11_N->ExtractView(&values_Bms11_N);
+double *values_Bms11_NP1          ; Bms11_NP1->ExtractView(&values_Bms11_NP1);
+double *values_Bms12_N            ; Bms12_N->ExtractView(&values_Bms12_N);
+double *values_Bms12_NP1          ; Bms12_NP1->ExtractView(&values_Bms12_NP1);
+double *values_Bms13_N            ; Bms13_N->ExtractView(&values_Bms13_N);
+double *values_Bms13_NP1          ; Bms13_NP1->ExtractView(&values_Bms13_NP1);
+double *values_Bms14_N            ; Bms14_N->ExtractView(&values_Bms14_N);
+double *values_Bms14_NP1          ; Bms14_NP1->ExtractView(&values_Bms14_NP1);
+double *values_Bms15_N            ; Bms15_N->ExtractView(&values_Bms15_N);
+double *values_Bms15_NP1          ; Bms15_NP1->ExtractView(&values_Bms15_NP1);
+double *values_Bms16_N            ; Bms16_N->ExtractView(&values_Bms16_N);
+double *values_Bms16_NP1          ; Bms16_NP1->ExtractView(&values_Bms16_NP1);
+double *values_Bms17_N            ; Bms17_N->ExtractView(&values_Bms17_N);
+double *values_Bms17_NP1          ; Bms17_NP1->ExtractView(&values_Bms17_NP1);
+double *values_Bms18_N            ; Bms18_N->ExtractView(&values_Bms18_N);
+double *values_Bms18_NP1          ; Bms18_NP1->ExtractView(&values_Bms18_NP1);
+double *values_Bms19_N            ; Bms19_N->ExtractView(&values_Bms19_N);
+double *values_Bms19_NP1          ; Bms19_NP1->ExtractView(&values_Bms19_NP1);
+double *values_Bms20_N            ; Bms20_N->ExtractView(&values_Bms20_N);
+double *values_Bms20_NP1          ; Bms20_NP1->ExtractView(&values_Bms20_NP1);
+
+double *values_Bms21_N            ; Bms21_N->ExtractView(&values_Bms21_N);
+double *values_Bms21_NP1          ; Bms21_NP1->ExtractView(&values_Bms21_NP1);
+double *values_Bms22_N            ; Bms22_N->ExtractView(&values_Bms22_N);
+double *values_Bms22_NP1          ; Bms22_NP1->ExtractView(&values_Bms22_NP1);
+double *values_Bms23_N            ; Bms23_N->ExtractView(&values_Bms23_N);
+double *values_Bms23_NP1          ; Bms23_NP1->ExtractView(&values_Bms23_NP1);
+double *values_Bms24_N            ; Bms24_N->ExtractView(&values_Bms24_N);
+double *values_Bms24_NP1          ; Bms24_NP1->ExtractView(&values_Bms24_NP1);
+double *values_Bms25_N            ; Bms25_N->ExtractView(&values_Bms25_N);
+double *values_Bms25_NP1          ; Bms25_NP1->ExtractView(&values_Bms25_NP1);
+double *values_Bms26_N            ; Bms26_N->ExtractView(&values_Bms26_N);
+double *values_Bms26_NP1          ; Bms26_NP1->ExtractView(&values_Bms26_NP1);
+double *values_Bms27_N            ; Bms27_N->ExtractView(&values_Bms27_N);
+double *values_Bms27_NP1          ; Bms27_NP1->ExtractView(&values_Bms27_NP1);
+double *values_Bms28_N            ; Bms28_N->ExtractView(&values_Bms28_N);
+double *values_Bms28_NP1          ; Bms28_NP1->ExtractView(&values_Bms28_NP1);
+double *values_Bms29_N            ; Bms29_N->ExtractView(&values_Bms29_N);
+double *values_Bms29_NP1          ; Bms29_NP1->ExtractView(&values_Bms29_NP1);
+double *values_Bms30_N            ; Bms30_N->ExtractView(&values_Bms30_N);
+double *values_Bms30_NP1          ; Bms30_NP1->ExtractView(&values_Bms30_NP1);
+
+double *values_Bms31_N            ; Bms31_N->ExtractView(&values_Bms31_N);
+double *values_Bms31_NP1          ; Bms31_NP1->ExtractView(&values_Bms31_NP1);
+double *values_Bms32_N            ; Bms32_N->ExtractView(&values_Bms32_N);
+double *values_Bms32_NP1          ; Bms32_NP1->ExtractView(&values_Bms32_NP1);
+double *values_Bms33_N            ; Bms33_N->ExtractView(&values_Bms33_N);
+double *values_Bms33_NP1          ; Bms33_NP1->ExtractView(&values_Bms33_NP1);
+double *values_Bms34_N            ; Bms34_N->ExtractView(&values_Bms34_N);
+double *values_Bms34_NP1          ; Bms34_NP1->ExtractView(&values_Bms34_NP1);
+double *values_Bms35_N            ; Bms35_N->ExtractView(&values_Bms35_N);
+double *values_Bms35_NP1          ; Bms35_NP1->ExtractView(&values_Bms35_NP1);
+double *values_Bms36_N            ; Bms36_N->ExtractView(&values_Bms36_N);
+double *values_Bms36_NP1          ; Bms36_NP1->ExtractView(&values_Bms36_NP1);
+double *values_Bms37_N            ; Bms37_N->ExtractView(&values_Bms37_N);
+double *values_Bms37_NP1          ; Bms37_NP1->ExtractView(&values_Bms37_NP1);
+double *values_Bms38_N            ; Bms38_N->ExtractView(&values_Bms38_N);
+double *values_Bms38_NP1          ; Bms38_NP1->ExtractView(&values_Bms38_NP1);
+double *values_Bms39_N            ; Bms39_N->ExtractView(&values_Bms39_N);
+double *values_Bms39_NP1          ; Bms39_NP1->ExtractView(&values_Bms39_NP1);
+double *values_Bms40_N            ; Bms40_N->ExtractView(&values_Bms40_N);
+double *values_Bms40_NP1          ; Bms40_NP1->ExtractView(&values_Bms40_NP1);
+
+double *values_Bms41_N            ; Bms41_N->ExtractView(&values_Bms41_N);
+double *values_Bms41_NP1          ; Bms41_NP1->ExtractView(&values_Bms41_NP1);
+double *values_Bms42_N            ; Bms42_N->ExtractView(&values_Bms42_N);
+double *values_Bms42_NP1          ; Bms42_NP1->ExtractView(&values_Bms42_NP1);
+double *values_Bms43_N            ; Bms43_N->ExtractView(&values_Bms43_N);
+double *values_Bms43_NP1          ; Bms43_NP1->ExtractView(&values_Bms43_NP1);
+double *values_Bms44_N            ; Bms44_N->ExtractView(&values_Bms44_N);
+double *values_Bms44_NP1          ; Bms44_NP1->ExtractView(&values_Bms44_NP1);
+double *values_Bms45_N            ; Bms45_N->ExtractView(&values_Bms45_N);
+double *values_Bms45_NP1          ; Bms45_NP1->ExtractView(&values_Bms45_NP1);
+double *values_Bms46_N            ; Bms46_N->ExtractView(&values_Bms46_N);
+double *values_Bms46_NP1          ; Bms46_NP1->ExtractView(&values_Bms46_NP1);
+double *values_Bms47_N            ; Bms47_N->ExtractView(&values_Bms47_N);
+double *values_Bms47_NP1          ; Bms47_NP1->ExtractView(&values_Bms47_NP1);
+double *values_Bms48_N            ; Bms48_N->ExtractView(&values_Bms48_N);
+double *values_Bms48_NP1          ; Bms48_NP1->ExtractView(&values_Bms48_NP1);
+double *values_Bms49_N            ; Bms49_N->ExtractView(&values_Bms49_N);
+double *values_Bms49_NP1          ; Bms49_NP1->ExtractView(&values_Bms49_NP1);
+double *values_Bms50_N            ; Bms50_N->ExtractView(&values_Bms50_N);
+double *values_Bms50_NP1          ; Bms50_NP1->ExtractView(&values_Bms50_NP1);
+
+double *values_Bms51_N            ; Bms51_N->ExtractView(&values_Bms51_N);
+double *values_Bms51_NP1          ; Bms51_NP1->ExtractView(&values_Bms51_NP1);
+double *values_Bms52_N            ; Bms52_N->ExtractView(&values_Bms52_N);
+double *values_Bms52_NP1          ; Bms52_NP1->ExtractView(&values_Bms52_NP1);
+double *values_Bms53_N            ; Bms53_N->ExtractView(&values_Bms53_N);
+double *values_Bms53_NP1          ; Bms53_NP1->ExtractView(&values_Bms53_NP1);
+double *values_Bms54_N            ; Bms54_N->ExtractView(&values_Bms54_N);
+double *values_Bms54_NP1          ; Bms54_NP1->ExtractView(&values_Bms54_NP1);
+double *values_Bms55_N            ; Bms55_N->ExtractView(&values_Bms55_N);
+double *values_Bms55_NP1          ; Bms55_NP1->ExtractView(&values_Bms55_NP1);
+double *values_Bms56_N            ; Bms56_N->ExtractView(&values_Bms56_N);
+double *values_Bms56_NP1          ; Bms56_NP1->ExtractView(&values_Bms56_NP1);
+double *values_Bms57_N            ; Bms57_N->ExtractView(&values_Bms57_N);
+double *values_Bms57_NP1          ; Bms57_NP1->ExtractView(&values_Bms57_NP1);
+double *values_Bms58_N            ; Bms58_N->ExtractView(&values_Bms58_N);
+double *values_Bms58_NP1          ; Bms58_NP1->ExtractView(&values_Bms58_NP1);
+double *values_Bms59_N            ; Bms59_N->ExtractView(&values_Bms59_N);
+double *values_Bms59_NP1          ; Bms59_NP1->ExtractView(&values_Bms59_NP1);
+double *values_Bms60_N            ; Bms60_N->ExtractView(&values_Bms60_N);
+double *values_Bms60_NP1          ; Bms60_NP1->ExtractView(&values_Bms60_NP1);
+
+double *values_Bms61_N            ; Bms61_N->ExtractView(&values_Bms61_N);
+double *values_Bms61_NP1          ; Bms61_NP1->ExtractView(&values_Bms61_NP1);
+double *values_Bms62_N            ; Bms62_N->ExtractView(&values_Bms62_N);
+double *values_Bms62_NP1          ; Bms62_NP1->ExtractView(&values_Bms62_NP1);
+double *values_Bms63_N            ; Bms63_N->ExtractView(&values_Bms63_N);
+double *values_Bms63_NP1          ; Bms63_NP1->ExtractView(&values_Bms63_NP1);
+double *values_Bms64_N            ; Bms64_N->ExtractView(&values_Bms64_N);
+double *values_Bms64_NP1          ; Bms64_NP1->ExtractView(&values_Bms64_NP1);
+double *values_Bms65_N            ; Bms65_N->ExtractView(&values_Bms65_N);
+double *values_Bms65_NP1          ; Bms65_NP1->ExtractView(&values_Bms65_NP1);
+double *values_Bms66_N            ; Bms66_N->ExtractView(&values_Bms66_N);
+double *values_Bms66_NP1          ; Bms66_NP1->ExtractView(&values_Bms66_NP1);
+double *values_Bms67_N            ; Bms67_N->ExtractView(&values_Bms67_N);
+double *values_Bms67_NP1          ; Bms67_NP1->ExtractView(&values_Bms67_NP1);
+double *values_Bms68_N            ; Bms68_N->ExtractView(&values_Bms68_N);
+double *values_Bms68_NP1          ; Bms68_NP1->ExtractView(&values_Bms68_NP1);
+double *values_Bms69_N            ; Bms69_N->ExtractView(&values_Bms69_N);
+double *values_Bms69_NP1          ; Bms69_NP1->ExtractView(&values_Bms69_NP1);
+double *values_Bms70_N            ; Bms70_N->ExtractView(&values_Bms70_N);
+double *values_Bms70_NP1          ; Bms70_NP1->ExtractView(&values_Bms70_NP1);
+
+double *values_Bms71_N            ; Bms71_N->ExtractView(&values_Bms71_N);
+double *values_Bms71_NP1          ; Bms71_NP1->ExtractView(&values_Bms71_NP1);
+double *values_Bms72_N            ; Bms72_N->ExtractView(&values_Bms72_N);
+double *values_Bms72_NP1          ; Bms72_NP1->ExtractView(&values_Bms72_NP1);
+double *values_Bms73_N            ; Bms73_N->ExtractView(&values_Bms73_N);
+double *values_Bms73_NP1          ; Bms73_NP1->ExtractView(&values_Bms73_NP1);
+double *values_Bms74_N            ; Bms74_N->ExtractView(&values_Bms74_N);
+double *values_Bms74_NP1          ; Bms74_NP1->ExtractView(&values_Bms74_NP1);
+double *values_Bms75_N            ; Bms75_N->ExtractView(&values_Bms75_N);
+double *values_Bms75_NP1          ; Bms75_NP1->ExtractView(&values_Bms75_NP1);
+double *values_Bms76_N            ; Bms76_N->ExtractView(&values_Bms76_N);
+double *values_Bms76_NP1          ; Bms76_NP1->ExtractView(&values_Bms76_NP1);
+double *values_Bms77_N            ; Bms77_N->ExtractView(&values_Bms77_N);
+double *values_Bms77_NP1          ; Bms77_NP1->ExtractView(&values_Bms77_NP1);
+double *values_Bms78_N            ; Bms78_N->ExtractView(&values_Bms78_N);
+double *values_Bms78_NP1          ; Bms78_NP1->ExtractView(&values_Bms78_NP1);
+double *values_Bms79_N            ; Bms79_N->ExtractView(&values_Bms79_N);
+double *values_Bms79_NP1          ; Bms79_NP1->ExtractView(&values_Bms79_NP1);
+double *values_Bms80_N            ; Bms80_N->ExtractView(&values_Bms80_N);
+double *values_Bms80_NP1          ; Bms80_NP1->ExtractView(&values_Bms80_NP1);
+
+double *values_Bms81_N            ; Bms81_N->ExtractView(&values_Bms81_N);
+double *values_Bms81_NP1          ; Bms81_NP1->ExtractView(&values_Bms81_NP1);
+double *values_Bms82_N            ; Bms82_N->ExtractView(&values_Bms82_N);
+double *values_Bms82_NP1          ; Bms82_NP1->ExtractView(&values_Bms82_NP1);
+double *values_Bms83_N            ; Bms83_N->ExtractView(&values_Bms83_N);
+double *values_Bms83_NP1          ; Bms83_NP1->ExtractView(&values_Bms83_NP1);
+double *values_Bms84_N            ; Bms84_N->ExtractView(&values_Bms84_N);
+double *values_Bms84_NP1          ; Bms84_NP1->ExtractView(&values_Bms84_NP1);
+double *values_Bms85_N            ; Bms85_N->ExtractView(&values_Bms85_N);
+double *values_Bms85_NP1          ; Bms85_NP1->ExtractView(&values_Bms85_NP1);
+double *values_Bms86_N            ; Bms86_N->ExtractView(&values_Bms86_N);
+double *values_Bms86_NP1          ; Bms86_NP1->ExtractView(&values_Bms86_NP1);
+double *values_Bms87_N            ; Bms87_N->ExtractView(&values_Bms87_N);
+double *values_Bms87_NP1          ; Bms87_NP1->ExtractView(&values_Bms87_NP1);
+double *values_Bms88_N            ; Bms88_N->ExtractView(&values_Bms88_N);
+double *values_Bms88_NP1          ; Bms88_NP1->ExtractView(&values_Bms88_NP1);
+double *values_Bms89_N            ; Bms89_N->ExtractView(&values_Bms89_N);
+double *values_Bms89_NP1          ; Bms89_NP1->ExtractView(&values_Bms89_NP1);
+double *values_Bms90_N            ; Bms90_N->ExtractView(&values_Bms90_N);
+double *values_Bms90_NP1          ; Bms90_NP1->ExtractView(&values_Bms90_NP1);
+
+double *values_Bms91_N            ; Bms91_N->ExtractView(&values_Bms91_N);
+double *values_Bms91_NP1          ; Bms91_NP1->ExtractView(&values_Bms91_NP1);
+double *values_Bms92_N            ; Bms92_N->ExtractView(&values_Bms92_N);
+double *values_Bms92_NP1          ; Bms92_NP1->ExtractView(&values_Bms92_NP1);
+double *values_Bms93_N            ; Bms93_N->ExtractView(&values_Bms93_N);
+double *values_Bms93_NP1          ; Bms93_NP1->ExtractView(&values_Bms93_NP1);
+double *values_Bms94_N            ; Bms94_N->ExtractView(&values_Bms94_N);
+double *values_Bms94_NP1          ; Bms94_NP1->ExtractView(&values_Bms94_NP1);
+double *values_Bms95_N            ; Bms95_N->ExtractView(&values_Bms95_N);
+double *values_Bms95_NP1          ; Bms95_NP1->ExtractView(&values_Bms95_NP1);
+double *values_Bms96_N            ; Bms96_N->ExtractView(&values_Bms96_N);
+double *values_Bms96_NP1          ; Bms96_NP1->ExtractView(&values_Bms96_NP1);
+double *values_Bms97_N            ; Bms97_N->ExtractView(&values_Bms97_N);
+double *values_Bms97_NP1          ; Bms97_NP1->ExtractView(&values_Bms97_NP1);
+double *values_Bms98_N            ; Bms98_N->ExtractView(&values_Bms98_N);
+double *values_Bms98_NP1          ; Bms98_NP1->ExtractView(&values_Bms98_NP1);
+double *values_Bms99_N            ; Bms99_N->ExtractView(&values_Bms99_N);
+double *values_Bms99_NP1          ; Bms99_NP1->ExtractView(&values_Bms99_NP1);
+double *values_Bms100_N            ; Bms100_N->ExtractView(&values_Bms100_N);
+double *values_Bms100_NP1          ; Bms100_NP1->ExtractView(&values_Bms100_NP1);
+
+double *values_Bms101_N            ; Bms101_N->ExtractView(&values_Bms101_N);
+double *values_Bms101_NP1          ; Bms101_NP1->ExtractView(&values_Bms101_NP1);
+double *values_Bms102_N            ; Bms102_N->ExtractView(&values_Bms102_N);
+double *values_Bms102_NP1          ; Bms102_NP1->ExtractView(&values_Bms102_NP1);
+double *values_Bms103_N            ; Bms103_N->ExtractView(&values_Bms103_N);
+double *values_Bms103_NP1          ; Bms103_NP1->ExtractView(&values_Bms103_NP1);
+double *values_Bms104_N            ; Bms104_N->ExtractView(&values_Bms104_N);
+double *values_Bms104_NP1          ; Bms104_NP1->ExtractView(&values_Bms104_NP1);
+double *values_Bms105_N            ; Bms105_N->ExtractView(&values_Bms105_N);
+double *values_Bms105_NP1          ; Bms105_NP1->ExtractView(&values_Bms105_NP1);
+double *values_Bms106_N            ; Bms106_N->ExtractView(&values_Bms106_N);
+double *values_Bms106_NP1          ; Bms106_NP1->ExtractView(&values_Bms106_NP1);
+double *values_Bms107_N            ; Bms107_N->ExtractView(&values_Bms107_N);
+double *values_Bms107_NP1          ; Bms107_NP1->ExtractView(&values_Bms107_NP1);
+double *values_Bms108_N            ; Bms108_N->ExtractView(&values_Bms108_N);
+double *values_Bms108_NP1          ; Bms108_NP1->ExtractView(&values_Bms108_NP1);
+double *values_Bms109_N            ; Bms109_N->ExtractView(&values_Bms109_N);
+double *values_Bms109_NP1          ; Bms109_NP1->ExtractView(&values_Bms109_NP1);
+double *values_Bms110_N           ; Bms110_N->ExtractView(&values_Bms110_N);
+double *values_Bms110_NP1         ; Bms110_NP1->ExtractView(&values_Bms110_NP1);
+
+double *values_Bms111_N            ; Bms111_N->ExtractView(&values_Bms111_N);
+double *values_Bms111_NP1          ; Bms111_NP1->ExtractView(&values_Bms111_NP1);
+double *values_Bms112_N            ; Bms112_N->ExtractView(&values_Bms112_N);
+double *values_Bms112_NP1          ; Bms112_NP1->ExtractView(&values_Bms112_NP1);
+double *values_Bms113_N            ; Bms113_N->ExtractView(&values_Bms113_N);
+double *values_Bms113_NP1          ; Bms113_NP1->ExtractView(&values_Bms113_NP1);
+double *values_Bms114_N            ; Bms114_N->ExtractView(&values_Bms114_N);
+double *values_Bms114_NP1          ; Bms114_NP1->ExtractView(&values_Bms114_NP1);
+double *values_Bms115_N            ; Bms115_N->ExtractView(&values_Bms115_N);
+double *values_Bms115_NP1          ; Bms115_NP1->ExtractView(&values_Bms115_NP1);
+double *values_Bms116_N            ; Bms116_N->ExtractView(&values_Bms116_N);
+double *values_Bms116_NP1          ; Bms116_NP1->ExtractView(&values_Bms116_NP1);
+double *values_Bms117_N            ; Bms117_N->ExtractView(&values_Bms117_N);
+double *values_Bms117_NP1          ; Bms117_NP1->ExtractView(&values_Bms117_NP1);
+double *values_Bms118_N            ; Bms118_N->ExtractView(&values_Bms118_N);
+double *values_Bms118_NP1          ; Bms118_NP1->ExtractView(&values_Bms118_NP1);
+double *values_Bms119_N            ; Bms119_N->ExtractView(&values_Bms119_N);
+double *values_Bms119_NP1          ; Bms119_NP1->ExtractView(&values_Bms119_NP1);
+double *values_Bms120_N            ; Bms120_N->ExtractView(&values_Bms120_N);
+double *values_Bms120_NP1          ; Bms120_NP1->ExtractView(&values_Bms120_NP1);
+
+double *values_Bms121_N            ; Bms121_N->ExtractView(&values_Bms121_N);
+double *values_Bms121_NP1          ; Bms121_NP1->ExtractView(&values_Bms121_NP1);
+double *values_Bms122_N            ; Bms122_N->ExtractView(&values_Bms122_N);
+double *values_Bms122_NP1          ; Bms122_NP1->ExtractView(&values_Bms122_NP1);
+double *values_Bms123_N            ; Bms123_N->ExtractView(&values_Bms123_N);
+double *values_Bms123_NP1          ; Bms123_NP1->ExtractView(&values_Bms123_NP1);
+double *values_Bms124_N            ; Bms124_N->ExtractView(&values_Bms124_N);
+double *values_Bms124_NP1          ; Bms124_NP1->ExtractView(&values_Bms124_NP1);
+double *values_Bms125_N            ; Bms125_N->ExtractView(&values_Bms125_N);
+double *values_Bms125_NP1          ; Bms125_NP1->ExtractView(&values_Bms125_NP1);
+double *values_Bms126_N            ; Bms126_N->ExtractView(&values_Bms126_N);
+double *values_Bms126_NP1          ; Bms126_NP1->ExtractView(&values_Bms126_NP1);
+double *values_Bms127_N            ; Bms127_N->ExtractView(&values_Bms127_N);
+double *values_Bms127_NP1          ; Bms127_NP1->ExtractView(&values_Bms127_NP1);
+double *values_Bms128_N            ; Bms128_N->ExtractView(&values_Bms128_N);
+double *values_Bms128_NP1          ; Bms128_NP1->ExtractView(&values_Bms128_NP1);
+double *values_Bms129_N            ; Bms129_N->ExtractView(&values_Bms129_N);
+double *values_Bms129_NP1          ; Bms129_NP1->ExtractView(&values_Bms129_NP1);
+double *values_Bms130_N            ; Bms130_N->ExtractView(&values_Bms130_N);
+double *values_Bms130_NP1          ; Bms130_NP1->ExtractView(&values_Bms130_NP1);
+
+double *values_Bms131_N            ; Bms131_N->ExtractView(&values_Bms131_N);
+double *values_Bms131_NP1          ; Bms131_NP1->ExtractView(&values_Bms131_NP1);
+double *values_Bms132_N            ; Bms132_N->ExtractView(&values_Bms132_N);
+double *values_Bms132_NP1          ; Bms132_NP1->ExtractView(&values_Bms132_NP1);
+double *values_Bms133_N            ; Bms133_N->ExtractView(&values_Bms133_N);
+double *values_Bms133_NP1          ; Bms133_NP1->ExtractView(&values_Bms133_NP1);
+double *values_Bms134_N            ; Bms134_N->ExtractView(&values_Bms134_N);
+double *values_Bms134_NP1          ; Bms134_NP1->ExtractView(&values_Bms134_NP1);
+double *values_Bms135_N            ; Bms135_N->ExtractView(&values_Bms135_N);
+double *values_Bms135_NP1          ; Bms135_NP1->ExtractView(&values_Bms135_NP1);
+double *values_Bms136_N            ; Bms136_N->ExtractView(&values_Bms136_N);
+double *values_Bms136_NP1          ; Bms136_NP1->ExtractView(&values_Bms136_NP1);
+double *values_Bms137_N            ; Bms137_N->ExtractView(&values_Bms137_N);
+double *values_Bms137_NP1          ; Bms137_NP1->ExtractView(&values_Bms137_NP1);
+double *values_Bms138_N            ; Bms138_N->ExtractView(&values_Bms138_N);
+double *values_Bms138_NP1          ; Bms138_NP1->ExtractView(&values_Bms138_NP1);
+double *values_Bms139_N            ; Bms139_N->ExtractView(&values_Bms139_N);
+double *values_Bms139_NP1          ; Bms139_NP1->ExtractView(&values_Bms139_NP1);
+double *values_Bms140_N            ; Bms140_N->ExtractView(&values_Bms140_N);
+double *values_Bms140_NP1          ; Bms140_NP1->ExtractView(&values_Bms140_NP1);
+
+double *values_Bms141_N            ; Bms141_N->ExtractView(&values_Bms141_N);
+double *values_Bms141_NP1          ; Bms141_NP1->ExtractView(&values_Bms141_NP1);
+double *values_Bms142_N            ; Bms142_N->ExtractView(&values_Bms142_N);
+double *values_Bms142_NP1          ; Bms142_NP1->ExtractView(&values_Bms142_NP1);
+double *values_Bms143_N            ; Bms143_N->ExtractView(&values_Bms143_N);
+double *values_Bms143_NP1          ; Bms143_NP1->ExtractView(&values_Bms143_NP1);
+double *values_Bms144_N            ; Bms144_N->ExtractView(&values_Bms144_N);
+double *values_Bms144_NP1          ; Bms144_NP1->ExtractView(&values_Bms144_NP1);
+double *values_Bms145_N            ; Bms145_N->ExtractView(&values_Bms145_N);
+double *values_Bms145_NP1          ; Bms145_NP1->ExtractView(&values_Bms145_NP1);
+double *values_Bms146_N            ; Bms146_N->ExtractView(&values_Bms146_N);
+double *values_Bms146_NP1          ; Bms146_NP1->ExtractView(&values_Bms146_NP1);
+double *values_Bms147_N            ; Bms147_N->ExtractView(&values_Bms147_N);
+double *values_Bms147_NP1          ; Bms147_NP1->ExtractView(&values_Bms147_NP1);
+double *values_Bms148_N            ; Bms148_N->ExtractView(&values_Bms148_N);
+double *values_Bms148_NP1          ; Bms148_NP1->ExtractView(&values_Bms148_NP1);
+double *values_Bms149_N            ; Bms149_N->ExtractView(&values_Bms149_N);
+double *values_Bms149_NP1          ; Bms149_NP1->ExtractView(&values_Bms149_NP1);
+double *values_Bms150_N            ; Bms150_N->ExtractView(&values_Bms150_N);
+double *values_Bms150_NP1          ; Bms150_NP1->ExtractView(&values_Bms150_NP1);
+
+double *values_Bms151_N            ; Bms151_N->ExtractView(&values_Bms151_N);
+double *values_Bms151_NP1          ; Bms151_NP1->ExtractView(&values_Bms151_NP1);
+double *values_Bms152_N            ; Bms152_N->ExtractView(&values_Bms152_N);
+double *values_Bms152_NP1          ; Bms152_NP1->ExtractView(&values_Bms152_NP1);
+double *values_Bms153_N            ; Bms153_N->ExtractView(&values_Bms153_N);
+double *values_Bms153_NP1          ; Bms153_NP1->ExtractView(&values_Bms153_NP1);
+double *values_Bms154_N            ; Bms154_N->ExtractView(&values_Bms154_N);
+double *values_Bms154_NP1          ; Bms154_NP1->ExtractView(&values_Bms154_NP1);
+double *values_Bms155_N            ; Bms155_N->ExtractView(&values_Bms155_N);
+double *values_Bms155_NP1          ; Bms155_NP1->ExtractView(&values_Bms155_NP1);
+double *values_Bms156_N            ; Bms156_N->ExtractView(&values_Bms156_N);
+double *values_Bms156_NP1          ; Bms156_NP1->ExtractView(&values_Bms156_NP1);
+double *values_Bms157_N            ; Bms157_N->ExtractView(&values_Bms157_N);
+double *values_Bms157_NP1          ; Bms157_NP1->ExtractView(&values_Bms157_NP1);
+double *values_Bms158_N            ; Bms158_N->ExtractView(&values_Bms158_N);
+double *values_Bms158_NP1          ; Bms158_NP1->ExtractView(&values_Bms158_NP1);
+double *values_Bms159_N            ; Bms159_N->ExtractView(&values_Bms159_N);
+double *values_Bms159_NP1          ; Bms159_NP1->ExtractView(&values_Bms159_NP1);
+double *values_Bms160_N            ; Bms160_N->ExtractView(&values_Bms160_N);
+double *values_Bms160_NP1          ; Bms160_NP1->ExtractView(&values_Bms160_NP1);
+
+double *values_Bms161_N            ; Bms161_N->ExtractView(&values_Bms161_N);
+double *values_Bms161_NP1          ; Bms161_NP1->ExtractView(&values_Bms161_NP1);
+double *values_Bms162_N            ; Bms162_N->ExtractView(&values_Bms162_N);
+double *values_Bms162_NP1          ; Bms162_NP1->ExtractView(&values_Bms162_NP1);
+double *values_Bms163_N            ; Bms163_N->ExtractView(&values_Bms163_N);
+double *values_Bms163_NP1          ; Bms163_NP1->ExtractView(&values_Bms163_NP1);
+double *values_Bms164_N            ; Bms164_N->ExtractView(&values_Bms164_N);
+double *values_Bms164_NP1          ; Bms164_NP1->ExtractView(&values_Bms164_NP1);
+double *values_Bms165_N            ; Bms165_N->ExtractView(&values_Bms165_N);
+double *values_Bms165_NP1          ; Bms165_NP1->ExtractView(&values_Bms165_NP1);
+double *values_Bms166_N            ; Bms166_N->ExtractView(&values_Bms166_N);
+double *values_Bms166_NP1          ; Bms166_NP1->ExtractView(&values_Bms166_NP1);
+double *values_Bms167_N            ; Bms167_N->ExtractView(&values_Bms167_N);
+double *values_Bms167_NP1          ; Bms167_NP1->ExtractView(&values_Bms167_NP1);
+double *values_Bms168_N            ; Bms168_N->ExtractView(&values_Bms168_N);
+double *values_Bms168_NP1          ; Bms168_NP1->ExtractView(&values_Bms168_NP1);
+double *values_Bms169_N            ; Bms169_N->ExtractView(&values_Bms169_N);
+double *values_Bms169_NP1          ; Bms169_NP1->ExtractView(&values_Bms169_NP1);
+double *values_Bms170_N            ; Bms170_N->ExtractView(&values_Bms170_N);
+double *values_Bms170_NP1          ; Bms170_NP1->ExtractView(&values_Bms170_NP1);
+
+double *values_Bms171_N            ; Bms171_N->ExtractView(&values_Bms171_N);
+double *values_Bms171_NP1          ; Bms171_NP1->ExtractView(&values_Bms171_NP1);
+double *values_Bms172_N            ; Bms172_N->ExtractView(&values_Bms172_N);
+double *values_Bms172_NP1          ; Bms172_NP1->ExtractView(&values_Bms172_NP1);
+double *values_Bms173_N            ; Bms173_N->ExtractView(&values_Bms173_N);
+double *values_Bms173_NP1          ; Bms173_NP1->ExtractView(&values_Bms173_NP1);
+double *values_Bms174_N            ; Bms174_N->ExtractView(&values_Bms174_N);
+double *values_Bms174_NP1          ; Bms174_NP1->ExtractView(&values_Bms174_NP1);
+double *values_Bms175_N            ; Bms175_N->ExtractView(&values_Bms175_N);
+double *values_Bms175_NP1          ; Bms175_NP1->ExtractView(&values_Bms175_NP1);
+double *values_Bms176_N            ; Bms176_N->ExtractView(&values_Bms176_N);
+double *values_Bms176_NP1          ; Bms176_NP1->ExtractView(&values_Bms176_NP1);
+double *values_Bms177_N            ; Bms177_N->ExtractView(&values_Bms177_N);
+double *values_Bms177_NP1          ; Bms177_NP1->ExtractView(&values_Bms177_NP1);
+double *values_Bms178_N            ; Bms178_N->ExtractView(&values_Bms178_N);
+double *values_Bms178_NP1          ; Bms178_NP1->ExtractView(&values_Bms178_NP1);
+double *values_Bms179_N            ; Bms179_N->ExtractView(&values_Bms179_N);
+double *values_Bms179_NP1          ; Bms179_NP1->ExtractView(&values_Bms179_NP1);
+double *values_Bms180_N            ; Bms180_N->ExtractView(&values_Bms180_N);
+double *values_Bms180_NP1          ; Bms180_NP1->ExtractView(&values_Bms180_NP1);
+
+double *values_Bms181_N            ; Bms181_N->ExtractView(&values_Bms181_N);
+double *values_Bms181_NP1          ; Bms181_NP1->ExtractView(&values_Bms181_NP1);
+double *values_Bms182_N            ; Bms182_N->ExtractView(&values_Bms182_N);
+double *values_Bms182_NP1          ; Bms182_NP1->ExtractView(&values_Bms182_NP1);
+double *values_Bms183_N            ; Bms183_N->ExtractView(&values_Bms183_N);
+double *values_Bms183_NP1          ; Bms183_NP1->ExtractView(&values_Bms183_NP1);
+double *values_Bms184_N            ; Bms184_N->ExtractView(&values_Bms184_N);
+double *values_Bms184_NP1          ; Bms184_NP1->ExtractView(&values_Bms184_NP1);
+double *values_Bms185_N            ; Bms185_N->ExtractView(&values_Bms185_N);
+double *values_Bms185_NP1          ; Bms185_NP1->ExtractView(&values_Bms185_NP1);
+double *values_Bms186_N            ; Bms186_N->ExtractView(&values_Bms186_N);
+double *values_Bms186_NP1          ; Bms186_NP1->ExtractView(&values_Bms186_NP1);
+double *values_Bms187_N            ; Bms187_N->ExtractView(&values_Bms187_N);
+double *values_Bms187_NP1          ; Bms187_NP1->ExtractView(&values_Bms187_NP1);
+double *values_Bms188_N            ; Bms188_N->ExtractView(&values_Bms188_N);
+double *values_Bms188_NP1          ; Bms188_NP1->ExtractView(&values_Bms188_NP1);
+double *values_Bms189_N            ; Bms189_N->ExtractView(&values_Bms189_N);
+double *values_Bms189_NP1          ; Bms189_NP1->ExtractView(&values_Bms189_NP1);
+
+
+// Micro Damage
+
+double *values_Bmd1_N            ; Bmd1_N->ExtractView(&values_Bmd1_N);
+double *values_Bmd1_NP1          ; Bmd1_NP1->ExtractView(&values_Bmd1_NP1);
+double *values_Bmd2_N            ; Bmd2_N->ExtractView(&values_Bmd2_N);
+double *values_Bmd2_NP1          ; Bmd2_NP1->ExtractView(&values_Bmd2_NP1);
+double *values_Bmd3_N            ; Bmd3_N->ExtractView(&values_Bmd3_N);
+double *values_Bmd3_NP1          ; Bmd3_NP1->ExtractView(&values_Bmd3_NP1);
+double *values_Bmd4_N            ; Bmd4_N->ExtractView(&values_Bmd4_N);
+double *values_Bmd4_NP1          ; Bmd4_NP1->ExtractView(&values_Bmd4_NP1);
+double *values_Bmd5_N            ; Bmd5_N->ExtractView(&values_Bmd5_N);
+double *values_Bmd5_NP1          ; Bmd5_NP1->ExtractView(&values_Bmd5_NP1);
+double *values_Bmd6_N            ; Bmd6_N->ExtractView(&values_Bmd6_N);
+double *values_Bmd6_NP1          ; Bmd6_NP1->ExtractView(&values_Bmd6_NP1);
+double *values_Bmd7_N            ; Bmd7_N->ExtractView(&values_Bmd7_N);
+double *values_Bmd7_NP1          ; Bmd7_NP1->ExtractView(&values_Bmd7_NP1);
+double *values_Bmd8_N            ; Bmd8_N->ExtractView(&values_Bmd8_N);
+double *values_Bmd8_NP1          ; Bmd8_NP1->ExtractView(&values_Bmd8_NP1);
+double *values_Bmd9_N            ; Bmd9_N->ExtractView(&values_Bmd9_N);
+double *values_Bmd9_NP1          ; Bmd9_NP1->ExtractView(&values_Bmd9_NP1);
+double *values_Bmd10_N           ; Bmd10_N->ExtractView(&values_Bmd10_N);
+double *values_Bmd10_NP1         ; Bmd10_NP1->ExtractView(&values_Bmd10_NP1);
+
+double *values_Bmd11_N            ; Bmd11_N->ExtractView(&values_Bmd11_N);
+double *values_Bmd11_NP1          ; Bmd11_NP1->ExtractView(&values_Bmd11_NP1);
+double *values_Bmd12_N            ; Bmd12_N->ExtractView(&values_Bmd12_N);
+double *values_Bmd12_NP1          ; Bmd12_NP1->ExtractView(&values_Bmd12_NP1);
+double *values_Bmd13_N            ; Bmd13_N->ExtractView(&values_Bmd13_N);
+double *values_Bmd13_NP1          ; Bmd13_NP1->ExtractView(&values_Bmd13_NP1);
+double *values_Bmd14_N            ; Bmd14_N->ExtractView(&values_Bmd14_N);
+double *values_Bmd14_NP1          ; Bmd14_NP1->ExtractView(&values_Bmd14_NP1);
+double *values_Bmd15_N            ; Bmd15_N->ExtractView(&values_Bmd15_N);
+double *values_Bmd15_NP1          ; Bmd15_NP1->ExtractView(&values_Bmd15_NP1);
+double *values_Bmd16_N            ; Bmd16_N->ExtractView(&values_Bmd16_N);
+double *values_Bmd16_NP1          ; Bmd16_NP1->ExtractView(&values_Bmd16_NP1);
+double *values_Bmd17_N            ; Bmd17_N->ExtractView(&values_Bmd17_N);
+double *values_Bmd17_NP1          ; Bmd17_NP1->ExtractView(&values_Bmd17_NP1);
+double *values_Bmd18_N            ; Bmd18_N->ExtractView(&values_Bmd18_N);
+double *values_Bmd18_NP1          ; Bmd18_NP1->ExtractView(&values_Bmd18_NP1);
+double *values_Bmd19_N            ; Bmd19_N->ExtractView(&values_Bmd19_N);
+double *values_Bmd19_NP1          ; Bmd19_NP1->ExtractView(&values_Bmd19_NP1);
+double *values_Bmd20_N            ; Bmd20_N->ExtractView(&values_Bmd20_N);
+double *values_Bmd20_NP1          ; Bmd20_NP1->ExtractView(&values_Bmd20_NP1);
+
+double *values_Bmd21_N            ; Bmd21_N->ExtractView(&values_Bmd21_N);
+double *values_Bmd21_NP1          ; Bmd21_NP1->ExtractView(&values_Bmd21_NP1);
+double *values_Bmd22_N            ; Bmd22_N->ExtractView(&values_Bmd22_N);
+double *values_Bmd22_NP1          ; Bmd22_NP1->ExtractView(&values_Bmd22_NP1);
+double *values_Bmd23_N            ; Bmd23_N->ExtractView(&values_Bmd23_N);
+double *values_Bmd23_NP1          ; Bmd23_NP1->ExtractView(&values_Bmd23_NP1);
+double *values_Bmd24_N            ; Bmd24_N->ExtractView(&values_Bmd24_N);
+double *values_Bmd24_NP1          ; Bmd24_NP1->ExtractView(&values_Bmd24_NP1);
+double *values_Bmd25_N            ; Bmd25_N->ExtractView(&values_Bmd25_N);
+double *values_Bmd25_NP1          ; Bmd25_NP1->ExtractView(&values_Bmd25_NP1);
+double *values_Bmd26_N            ; Bmd26_N->ExtractView(&values_Bmd26_N);
+double *values_Bmd26_NP1          ; Bmd26_NP1->ExtractView(&values_Bmd26_NP1);
+double *values_Bmd27_N            ; Bmd27_N->ExtractView(&values_Bmd27_N);
+double *values_Bmd27_NP1          ; Bmd27_NP1->ExtractView(&values_Bmd27_NP1);
+double *values_Bmd28_N            ; Bmd28_N->ExtractView(&values_Bmd28_N);
+double *values_Bmd28_NP1          ; Bmd28_NP1->ExtractView(&values_Bmd28_NP1);
+double *values_Bmd29_N            ; Bmd29_N->ExtractView(&values_Bmd29_N);
+double *values_Bmd29_NP1          ; Bmd29_NP1->ExtractView(&values_Bmd29_NP1);
+double *values_Bmd30_N            ; Bmd30_N->ExtractView(&values_Bmd30_N);
+double *values_Bmd30_NP1          ; Bmd30_NP1->ExtractView(&values_Bmd30_NP1);
+
+double *values_Bmd31_N            ; Bmd31_N->ExtractView(&values_Bmd31_N);
+double *values_Bmd31_NP1          ; Bmd31_NP1->ExtractView(&values_Bmd31_NP1);
+double *values_Bmd32_N            ; Bmd32_N->ExtractView(&values_Bmd32_N);
+double *values_Bmd32_NP1          ; Bmd32_NP1->ExtractView(&values_Bmd32_NP1);
+double *values_Bmd33_N            ; Bmd33_N->ExtractView(&values_Bmd33_N);
+double *values_Bmd33_NP1          ; Bmd33_NP1->ExtractView(&values_Bmd33_NP1);
+double *values_Bmd34_N            ; Bmd34_N->ExtractView(&values_Bmd34_N);
+double *values_Bmd34_NP1          ; Bmd34_NP1->ExtractView(&values_Bmd34_NP1);
+double *values_Bmd35_N            ; Bmd35_N->ExtractView(&values_Bmd35_N);
+double *values_Bmd35_NP1          ; Bmd35_NP1->ExtractView(&values_Bmd35_NP1);
+double *values_Bmd36_N            ; Bmd36_N->ExtractView(&values_Bmd36_N);
+double *values_Bmd36_NP1          ; Bmd36_NP1->ExtractView(&values_Bmd36_NP1);
+double *values_Bmd37_N            ; Bmd37_N->ExtractView(&values_Bmd37_N);
+double *values_Bmd37_NP1          ; Bmd37_NP1->ExtractView(&values_Bmd37_NP1);
+
+
+///////////////////////////////
+double *values_weightedDamage       ; weightedDamage->ExtractView(&values_weightedDamage);
+double *values_internalEnergy_N     ; internalEnergy_N->ExtractView(&values_internalEnergy_N);
+double *values_internalEnergy_NP1   ; internalEnergy_NP1->ExtractView(&values_internalEnergy_NP1);
+double *values_inelasticEnergy_N    ; inelasticEnergy_N->ExtractView(&values_inelasticEnergy_N);
+double *values_inelasticEnergy_NP1  ; inelasticEnergy_NP1->ExtractView(&values_inelasticEnergy_NP1);
+double *values_BinternalEnergy_N    ; BinternalEnergy_N->ExtractView(&values_BinternalEnergy_N);
+double *values_BinternalEnergy_NP1  ; BinternalEnergy_NP1->ExtractView(&values_BinternalEnergy_NP1);
+double *values_BinelasticEnergy_N   ; BinelasticEnergy_N->ExtractView(&values_BinelasticEnergy_N);
+double *values_BinelasticEnergy_NP1 ; BinelasticEnergy_NP1->ExtractView(&values_BinelasticEnergy_NP1);
+double *values_BweightedDamage      ; BweightedDamage->ExtractView(&values_BweightedDamage);
+
+for(int i=0 ; i < num_PD_nodes_onRank ; i++){
+
+MS.read( (char*)&values_ms1_N[i], sizeof(double) );//           = ms1_N->Values();
+MS.read( (char*)&values_ms1_NP1[i], sizeof(double) );//         = ms1_NP1->Values();
+MS.read( (char*)&values_ms2_N[i], sizeof(double) );//           = ms2_N->Values();
+MS.read( (char*)&values_ms2_NP1[i], sizeof(double) );//         = ms2_NP1->Values();
+MS.read( (char*)&values_ms3_N[i], sizeof(double) );//           = ms3_N->Values();
+MS.read( (char*)&values_ms3_NP1[i], sizeof(double) );//         = ms3_NP1->Values();
+MS.read( (char*)&values_ms4_N[i], sizeof(double) );//           = ms4_N->Values();
+MS.read( (char*)&values_ms4_NP1[i], sizeof(double) );//         = ms4_NP1->Values();
+MS.read( (char*)&values_ms5_N[i], sizeof(double) );//           = ms5_N->Values();
+MS.read( (char*)&values_ms5_NP1[i], sizeof(double) );//         = ms5_NP1->Values();
+MS.read( (char*)&values_ms6_N[i], sizeof(double) );//           = ms6_N->Values();
+MS.read( (char*)&values_ms6_NP1[i], sizeof(double) );//         = ms6_NP1->Values();
+MS.read( (char*)&values_ms7_N[i], sizeof(double) );//           = ms7_N->Values();
+MS.read( (char*)&values_ms7_NP1[i], sizeof(double) );//         = ms7_NP1->Values();
+MS.read( (char*)&values_ms8_N[i], sizeof(double) );//           = ms8_N->Values();
+MS.read( (char*)&values_ms8_NP1[i], sizeof(double) );//         = ms8_NP1->Values();
+MS.read( (char*)&values_ms9_N[i], sizeof(double) );//           = ms9_N->Values();
+MS.read( (char*)&values_ms9_NP1[i], sizeof(double) );//         = ms9_NP1->Values();
+MS.read( (char*)&values_ms10_N[i], sizeof(double) );//          = ms10_N->Values();
+MS.read( (char*)&values_ms10_NP1[i], sizeof(double) );//        = ms10_NP1->Values();
+
+MS.read( (char*)&values_ms11_N[i], sizeof(double) );//           = ms11_N->Values();
+MS.read( (char*)&values_ms11_NP1[i], sizeof(double) );//         = ms11_NP1->Values();
+MS.read( (char*)&values_ms12_N[i], sizeof(double) );//           = ms12_N->Values();
+MS.read( (char*)&values_ms12_NP1[i], sizeof(double) );//         = ms12_NP1->Values();
+MS.read( (char*)&values_ms13_N[i], sizeof(double) );//           = ms13_N->Values();
+MS.read( (char*)&values_ms13_NP1[i], sizeof(double) );//         = ms13_NP1->Values();
+MS.read( (char*)&values_ms14_N[i], sizeof(double) );//           = ms14_N->Values();
+MS.read( (char*)&values_ms14_NP1[i], sizeof(double) );//         = ms14_NP1->Values();
+MS.read( (char*)&values_ms15_N[i], sizeof(double) );//           = ms15_N->Values();
+MS.read( (char*)&values_ms15_NP1[i], sizeof(double) );//         = ms15_NP1->Values();
+MS.read( (char*)&values_ms16_N[i], sizeof(double) );//           = ms16_N->Values();
+MS.read( (char*)&values_ms16_NP1[i], sizeof(double) );//         = ms16_NP1->Values();
+MS.read( (char*)&values_ms17_N[i], sizeof(double) );//           = ms17_N->Values();
+MS.read( (char*)&values_ms17_NP1[i], sizeof(double) );//         = ms17_NP1->Values();
+MS.read( (char*)&values_ms18_N[i], sizeof(double) );//           = ms18_N->Values();
+MS.read( (char*)&values_ms18_NP1[i], sizeof(double) );//         = ms18_NP1->Values();
+MS.read( (char*)&values_ms19_N[i], sizeof(double) );//           = ms19_N->Values();
+MS.read( (char*)&values_ms19_NP1[i], sizeof(double) );//         = ms19_NP1->Values();
+MS.read( (char*)&values_ms20_N[i], sizeof(double) );//          = ms20_N->Values();
+MS.read( (char*)&values_ms20_NP1[i], sizeof(double) );//        = ms20_NP1->Values();
+
+MS.read( (char*)&values_ms21_N[i], sizeof(double) );//           = ms21_N->Values();
+MS.read( (char*)&values_ms21_NP1[i], sizeof(double) );//         = ms21_NP1->Values();
+MS.read( (char*)&values_ms22_N[i], sizeof(double) );//           = ms22_N->Values();
+MS.read( (char*)&values_ms22_NP1[i], sizeof(double) );//         = ms22_NP1->Values();
+MS.read( (char*)&values_ms23_N[i], sizeof(double) );//           = ms23_N->Values();
+MS.read( (char*)&values_ms23_NP1[i], sizeof(double) );//         = ms23_NP1->Values();
+MS.read( (char*)&values_ms24_N[i], sizeof(double) );//           = ms24_N->Values();
+MS.read( (char*)&values_ms24_NP1[i], sizeof(double) );//         = ms24_NP1->Values();
+MS.read( (char*)&values_ms25_N[i], sizeof(double) );//           = ms25_N->Values();
+MS.read( (char*)&values_ms25_NP1[i], sizeof(double) );//         = ms25_NP1->Values();
+MS.read( (char*)&values_ms26_N[i], sizeof(double) );//           = ms26_N->Values();
+MS.read( (char*)&values_ms26_NP1[i], sizeof(double) );//         = ms26_NP1->Values();
+MS.read( (char*)&values_ms27_N[i], sizeof(double) );//           = ms27_N->Values();
+MS.read( (char*)&values_ms27_NP1[i], sizeof(double) );//         = ms27_NP1->Values();
+MS.read( (char*)&values_ms28_N[i], sizeof(double) );//           = ms28_N->Values();
+MS.read( (char*)&values_ms28_NP1[i], sizeof(double) );//         = ms28_NP1->Values();
+MS.read( (char*)&values_ms29_N[i], sizeof(double) );//           = ms29_N->Values();
+MS.read( (char*)&values_ms29_NP1[i], sizeof(double) );//         = ms29_NP1->Values();
+MS.read( (char*)&values_ms30_N[i], sizeof(double) );//          = ms30_N->Values();
+MS.read( (char*)&values_ms30_NP1[i], sizeof(double) );//        = ms30_NP1->Values();
+
+MS.read( (char*)&values_ms31_N[i], sizeof(double) );//           = ms31_N->Values();
+MS.read( (char*)&values_ms31_NP1[i], sizeof(double) );//         = ms31_NP1->Values();
+MS.read( (char*)&values_ms32_N[i], sizeof(double) );//           = ms32_N->Values();
+MS.read( (char*)&values_ms32_NP1[i], sizeof(double) );//         = ms32_NP1->Values();
+MS.read( (char*)&values_ms33_N[i], sizeof(double) );//           = ms33_N->Values();
+MS.read( (char*)&values_ms33_NP1[i], sizeof(double) );//         = ms33_NP1->Values();
+MS.read( (char*)&values_ms34_N[i], sizeof(double) );//           = ms34_N->Values();
+MS.read( (char*)&values_ms34_NP1[i], sizeof(double) );//         = ms34_NP1->Values();
+MS.read( (char*)&values_ms35_N[i], sizeof(double) );//           = ms35_N->Values();
+MS.read( (char*)&values_ms35_NP1[i], sizeof(double) );//         = ms35_NP1->Values();
+MS.read( (char*)&values_ms36_N[i], sizeof(double) );//           = ms36_N->Values();
+MS.read( (char*)&values_ms36_NP1[i], sizeof(double) );//         = ms36_NP1->Values();
+MS.read( (char*)&values_ms37_N[i], sizeof(double) );//           = ms37_N->Values();
+MS.read( (char*)&values_ms37_NP1[i], sizeof(double) );//         = ms37_NP1->Values();
+MS.read( (char*)&values_ms38_N[i], sizeof(double) );//           = ms38_N->Values();
+MS.read( (char*)&values_ms38_NP1[i], sizeof(double) );//         = ms38_NP1->Values();
+MS.read( (char*)&values_ms39_N[i], sizeof(double) );//           = ms39_N->Values();
+MS.read( (char*)&values_ms39_NP1[i], sizeof(double) );//         = ms39_NP1->Values();
+MS.read( (char*)&values_ms40_N[i], sizeof(double) );//          = ms40_N->Values();
+MS.read( (char*)&values_ms40_NP1[i], sizeof(double) );//        = ms40_NP1->Values();
+
+MS.read( (char*)&values_ms41_N[i], sizeof(double) );//           = ms41_N->Values();
+MS.read( (char*)&values_ms41_NP1[i], sizeof(double) );//         = ms41_NP1->Values();
+MS.read( (char*)&values_ms42_N[i], sizeof(double) );//           = ms42_N->Values();
+MS.read( (char*)&values_ms42_NP1[i], sizeof(double) );//         = ms42_NP1->Values();
+MS.read( (char*)&values_ms43_N[i], sizeof(double) );//           = ms43_N->Values();
+MS.read( (char*)&values_ms43_NP1[i], sizeof(double) );//         = ms43_NP1->Values();
+MS.read( (char*)&values_ms44_N[i], sizeof(double) );//           = ms44_N->Values();
+MS.read( (char*)&values_ms44_NP1[i], sizeof(double) );//         = ms44_NP1->Values();
+MS.read( (char*)&values_ms45_N[i], sizeof(double) );//           = ms45_N->Values();
+MS.read( (char*)&values_ms45_NP1[i], sizeof(double) );//         = ms45_NP1->Values();
+MS.read( (char*)&values_ms46_N[i], sizeof(double) );//           = ms46_N->Values();
+MS.read( (char*)&values_ms46_NP1[i], sizeof(double) );//         = ms46_NP1->Values();
+MS.read( (char*)&values_ms47_N[i], sizeof(double) );//           = ms47_N->Values();
+MS.read( (char*)&values_ms47_NP1[i], sizeof(double) );//         = ms47_NP1->Values();
+MS.read( (char*)&values_ms48_N[i], sizeof(double) );//           = ms48_N->Values();
+MS.read( (char*)&values_ms48_NP1[i], sizeof(double) );//         = ms48_NP1->Values();
+MS.read( (char*)&values_ms49_N[i], sizeof(double) );//           = ms49_N->Values();
+MS.read( (char*)&values_ms49_NP1[i], sizeof(double) );//         = ms49_NP1->Values();
+MS.read( (char*)&values_ms50_N[i], sizeof(double) );//          = ms50_N->Values();
+MS.read( (char*)&values_ms50_NP1[i], sizeof(double) );//        = ms50_NP1->Values();
+
+MS.read( (char*)&values_ms51_N[i], sizeof(double) );//           = ms51_N->Values();
+MS.read( (char*)&values_ms51_NP1[i], sizeof(double) );//         = ms51_NP1->Values();
+MS.read( (char*)&values_ms52_N[i], sizeof(double) );//           = ms52_N->Values();
+MS.read( (char*)&values_ms52_NP1[i], sizeof(double) );//         = ms52_NP1->Values();
+MS.read( (char*)&values_ms53_N[i], sizeof(double) );//           = ms53_N->Values();
+MS.read( (char*)&values_ms53_NP1[i], sizeof(double) );//         = ms53_NP1->Values();
+MS.read( (char*)&values_ms54_N[i], sizeof(double) );//           = ms54_N->Values();
+MS.read( (char*)&values_ms54_NP1[i], sizeof(double) );//         = ms54_NP1->Values();
+MS.read( (char*)&values_ms55_N[i], sizeof(double) );//           = ms55_N->Values();
+MS.read( (char*)&values_ms55_NP1[i], sizeof(double) );//         = ms55_NP1->Values();
+MS.read( (char*)&values_ms56_N[i], sizeof(double) );//           = ms56_N->Values();
+MS.read( (char*)&values_ms56_NP1[i], sizeof(double) );//         = ms56_NP1->Values();
+MS.read( (char*)&values_ms57_N[i], sizeof(double) );//           = ms57_N->Values();
+MS.read( (char*)&values_ms57_NP1[i], sizeof(double) );//         = ms57_NP1->Values();
+MS.read( (char*)&values_ms58_N[i], sizeof(double) );//           = ms58_N->Values();
+MS.read( (char*)&values_ms58_NP1[i], sizeof(double) );//         = ms58_NP1->Values();
+MS.read( (char*)&values_ms59_N[i], sizeof(double) );//           = ms59_N->Values();
+MS.read( (char*)&values_ms59_NP1[i], sizeof(double) );//         = ms59_NP1->Values();
+MS.read( (char*)&values_ms60_N[i], sizeof(double) );//           = ms60_N->Values();
+MS.read( (char*)&values_ms60_NP1[i], sizeof(double) );//         = ms60_NP1->Values();
+
+MS.read( (char*)&values_ms61_N[i], sizeof(double) );//           = ms61_N->Values();
+MS.read( (char*)&values_ms61_NP1[i], sizeof(double) );//         = ms61_NP1->Values();
+MS.read( (char*)&values_ms62_N[i], sizeof(double) );//           = ms62_N->Values();
+MS.read( (char*)&values_ms62_NP1[i], sizeof(double) );//         = ms62_NP1->Values();
+MS.read( (char*)&values_ms63_N[i], sizeof(double) );//           = ms63_N->Values();
+MS.read( (char*)&values_ms63_NP1[i], sizeof(double) );//         = ms63_NP1->Values();
+MS.read( (char*)&values_ms64_N[i], sizeof(double) );//           = ms64_N->Values();
+MS.read( (char*)&values_ms64_NP1[i], sizeof(double) );//         = ms64_NP1->Values();
+MS.read( (char*)&values_ms65_N[i], sizeof(double) );//           = ms65_N->Values();
+MS.read( (char*)&values_ms65_NP1[i], sizeof(double) );//         = ms65_NP1->Values();
+MS.read( (char*)&values_ms66_N[i], sizeof(double) );//           = ms66_N->Values();
+MS.read( (char*)&values_ms66_NP1[i], sizeof(double) );//         = ms66_NP1->Values();
+MS.read( (char*)&values_ms67_N[i], sizeof(double) );//           = ms67_N->Values();
+MS.read( (char*)&values_ms67_NP1[i], sizeof(double) );//         = ms67_NP1->Values();
+MS.read( (char*)&values_ms68_N[i], sizeof(double) );//           = ms68_N->Values();
+MS.read( (char*)&values_ms68_NP1[i], sizeof(double) );//         = ms68_NP1->Values();
+MS.read( (char*)&values_ms69_N[i], sizeof(double) );//           = ms69_N->Values();
+MS.read( (char*)&values_ms69_NP1[i], sizeof(double) );//         = ms69_NP1->Values();
+MS.read( (char*)&values_ms70_N[i], sizeof(double) );//           = ms70_N->Values();
+MS.read( (char*)&values_ms70_NP1[i], sizeof(double) );//         = ms70_NP1->Values();
+
+MS.read( (char*)&values_ms71_N[i], sizeof(double) );//           = ms71_N->Values();
+MS.read( (char*)&values_ms71_NP1[i], sizeof(double) );//         = ms71_NP1->Values();
+MS.read( (char*)&values_ms72_N[i], sizeof(double) );//           = ms72_N->Values();
+MS.read( (char*)&values_ms72_NP1[i], sizeof(double) );//         = ms72_NP1->Values();
+MS.read( (char*)&values_ms73_N[i], sizeof(double) );//           = ms73_N->Values();
+MS.read( (char*)&values_ms73_NP1[i], sizeof(double) );//         = ms73_NP1->Values();
+MS.read( (char*)&values_ms74_N[i], sizeof(double) );//           = ms74_N->Values();
+MS.read( (char*)&values_ms74_NP1[i], sizeof(double) );//         = ms74_NP1->Values();
+MS.read( (char*)&values_ms75_N[i], sizeof(double) );//           = ms75_N->Values();
+MS.read( (char*)&values_ms75_NP1[i], sizeof(double) );//         = ms75_NP1->Values();
+MS.read( (char*)&values_ms76_N[i], sizeof(double) );//           = ms76_N->Values();
+MS.read( (char*)&values_ms76_NP1[i], sizeof(double) );//         = ms76_NP1->Values();
+MS.read( (char*)&values_ms77_N[i], sizeof(double) );//           = ms77_N->Values();
+MS.read( (char*)&values_ms77_NP1[i], sizeof(double) );//         = ms77_NP1->Values();
+MS.read( (char*)&values_ms78_N[i], sizeof(double) );//           = ms78_N->Values();
+MS.read( (char*)&values_ms78_NP1[i], sizeof(double) );//         = ms78_NP1->Values();
+MS.read( (char*)&values_ms79_N[i], sizeof(double) );//           = ms79_N->Values();
+MS.read( (char*)&values_ms79_NP1[i], sizeof(double) );//         = ms79_NP1->Values();
+MS.read( (char*)&values_ms80_N[i], sizeof(double) );//           = ms80_N->Values();
+MS.read( (char*)&values_ms80_NP1[i], sizeof(double) );//         = ms80_NP1->Values();
+
+MS.read( (char*)&values_ms81_N[i], sizeof(double) );//           = ms81_N->Values();
+MS.read( (char*)&values_ms81_NP1[i], sizeof(double) );//         = ms81_NP1->Values();
+MS.read( (char*)&values_ms82_N[i], sizeof(double) );//           = ms82_N->Values();
+MS.read( (char*)&values_ms82_NP1[i], sizeof(double) );//         = ms82_NP1->Values();
+MS.read( (char*)&values_ms83_N[i], sizeof(double) );//           = ms83_N->Values();
+MS.read( (char*)&values_ms83_NP1[i], sizeof(double) );//         = ms83_NP1->Values();
+MS.read( (char*)&values_ms84_N[i], sizeof(double) );//           = ms84_N->Values();
+MS.read( (char*)&values_ms84_NP1[i], sizeof(double) );//         = ms84_NP1->Values();
+MS.read( (char*)&values_ms85_N[i], sizeof(double) );//           = ms85_N->Values();
+MS.read( (char*)&values_ms85_NP1[i], sizeof(double) );//         = ms85_NP1->Values();
+MS.read( (char*)&values_ms86_N[i], sizeof(double) );//           = ms86_N->Values();
+MS.read( (char*)&values_ms86_NP1[i], sizeof(double) );//         = ms86_NP1->Values();
+MS.read( (char*)&values_ms87_N[i], sizeof(double) );//           = ms87_N->Values();
+MS.read( (char*)&values_ms87_NP1[i], sizeof(double) );//         = ms87_NP1->Values();
+MS.read( (char*)&values_ms88_N[i], sizeof(double) );//           = ms88_N->Values();
+MS.read( (char*)&values_ms88_NP1[i], sizeof(double) );//         = ms88_NP1->Values();
+MS.read( (char*)&values_ms89_N[i], sizeof(double) );//           = ms89_N->Values();
+MS.read( (char*)&values_ms89_NP1[i], sizeof(double) );//         = ms89_NP1->Values();
+MS.read( (char*)&values_ms90_N[i], sizeof(double) );//           = ms90_N->Values();
+MS.read( (char*)&values_ms90_NP1[i], sizeof(double) );//         = ms90_NP1->Values();
+
+MS.read( (char*)&values_ms91_N[i], sizeof(double) );//           = ms91_N->Values();
+MS.read( (char*)&values_ms91_NP1[i], sizeof(double) );//         = ms91_NP1->Values();
+MS.read( (char*)&values_ms92_N[i], sizeof(double) );//           = ms92_N->Values();
+MS.read( (char*)&values_ms92_NP1[i], sizeof(double) );//         = ms92_NP1->Values();
+MS.read( (char*)&values_ms93_N[i], sizeof(double) );//           = ms93_N->Values();
+MS.read( (char*)&values_ms93_NP1[i], sizeof(double) );//         = ms93_NP1->Values();
+MS.read( (char*)&values_ms94_N[i], sizeof(double) );//           = ms94_N->Values();
+MS.read( (char*)&values_ms94_NP1[i], sizeof(double) );//         = ms94_NP1->Values();
+MS.read( (char*)&values_ms95_N[i], sizeof(double) );//           = ms95_N->Values();
+MS.read( (char*)&values_ms95_NP1[i], sizeof(double) );//         = ms95_NP1->Values();
+MS.read( (char*)&values_ms96_N[i], sizeof(double) );//           = ms96_N->Values();
+MS.read( (char*)&values_ms96_NP1[i], sizeof(double) );//         = ms96_NP1->Values();
+MS.read( (char*)&values_ms97_N[i], sizeof(double) );//           = ms97_N->Values();
+MS.read( (char*)&values_ms97_NP1[i], sizeof(double) );//         = ms97_NP1->Values();
+MS.read( (char*)&values_ms98_N[i], sizeof(double) );//           = ms98_N->Values();
+MS.read( (char*)&values_ms98_NP1[i], sizeof(double) );//         = ms98_NP1->Values();
+MS.read( (char*)&values_ms99_N[i], sizeof(double) );//           = ms99_N->Values();
+MS.read( (char*)&values_ms99_NP1[i], sizeof(double) );//         = ms99_NP1->Values();
+MS.read( (char*)&values_ms100_N[i], sizeof(double) );//           = ms100_N->Values();
+MS.read( (char*)&values_ms100_NP1[i], sizeof(double) );//         = ms100_NP1->Values();
+
+
+MS.read( (char*)&values_ms101_N[i], sizeof(double) );//           = ms101_N->Values();
+MS.read( (char*)&values_ms101_NP1[i], sizeof(double) );//         = ms101_NP1->Values();
+MS.read( (char*)&values_ms102_N[i], sizeof(double) );//           = ms102_N->Values();
+MS.read( (char*)&values_ms102_NP1[i], sizeof(double) );//         = ms102_NP1->Values();
+MS.read( (char*)&values_ms103_N[i], sizeof(double) );//           = ms103_N->Values();
+MS.read( (char*)&values_ms103_NP1[i], sizeof(double) );//         = ms103_NP1->Values();
+MS.read( (char*)&values_ms104_N[i], sizeof(double) );//           = ms104_N->Values();
+MS.read( (char*)&values_ms104_NP1[i], sizeof(double) );//         = ms104_NP1->Values();
+MS.read( (char*)&values_ms105_N[i], sizeof(double) );//           = ms105_N->Values();
+MS.read( (char*)&values_ms105_NP1[i], sizeof(double) );//         = ms105_NP1->Values();
+MS.read( (char*)&values_ms106_N[i], sizeof(double) );//           = ms106_N->Values();
+MS.read( (char*)&values_ms106_NP1[i], sizeof(double) );//         = ms106_NP1->Values();
+MS.read( (char*)&values_ms107_N[i], sizeof(double) );//           = ms107_N->Values();
+MS.read( (char*)&values_ms107_NP1[i], sizeof(double) );//         = ms107_NP1->Values();
+MS.read( (char*)&values_ms108_N[i], sizeof(double) );//           = ms108_N->Values();
+MS.read( (char*)&values_ms108_NP1[i], sizeof(double) );//         = ms108_NP1->Values();
+MS.read( (char*)&values_ms109_N[i], sizeof(double) );//           = ms109_N->Values();
+MS.read( (char*)&values_ms109_NP1[i], sizeof(double) );//         = ms109_NP1->Values();
+MS.read( (char*)&values_ms110_N[i], sizeof(double) );//          = ms100_N->Values();
+MS.read( (char*)&values_ms110_NP1[i], sizeof(double) );//        = ms100_NP1->Values();
+
+MS.read( (char*)&values_ms111_N[i], sizeof(double) );//           = ms111_N->Values();
+MS.read( (char*)&values_ms111_NP1[i], sizeof(double) );//         = ms111_NP1->Values();
+MS.read( (char*)&values_ms112_N[i], sizeof(double) );//           = ms112_N->Values();
+MS.read( (char*)&values_ms112_NP1[i], sizeof(double) );//         = ms112_NP1->Values();
+MS.read( (char*)&values_ms113_N[i], sizeof(double) );//           = ms113_N->Values();
+MS.read( (char*)&values_ms113_NP1[i], sizeof(double) );//         = ms113_NP1->Values();
+MS.read( (char*)&values_ms114_N[i], sizeof(double) );//           = ms114_N->Values();
+MS.read( (char*)&values_ms114_NP1[i], sizeof(double) );//         = ms114_NP1->Values();
+MS.read( (char*)&values_ms115_N[i], sizeof(double) );//           = ms115_N->Values();
+MS.read( (char*)&values_ms115_NP1[i], sizeof(double) );//         = ms115_NP1->Values();
+MS.read( (char*)&values_ms116_N[i], sizeof(double) );//           = ms116_N->Values();
+MS.read( (char*)&values_ms116_NP1[i], sizeof(double) );//         = ms116_NP1->Values();
+MS.read( (char*)&values_ms117_N[i], sizeof(double) );//           = ms117_N->Values();
+MS.read( (char*)&values_ms117_NP1[i], sizeof(double) );//         = ms117_NP1->Values();
+MS.read( (char*)&values_ms118_N[i], sizeof(double) );//           = ms118_N->Values();
+MS.read( (char*)&values_ms118_NP1[i], sizeof(double) );//         = ms118_NP1->Values();
+MS.read( (char*)&values_ms119_N[i], sizeof(double) );//           = ms119_N->Values();
+MS.read( (char*)&values_ms119_NP1[i], sizeof(double) );//         = ms119_NP1->Values();
+MS.read( (char*)&values_ms120_N[i], sizeof(double) );//          = ms120_N->Values();
+MS.read( (char*)&values_ms120_NP1[i], sizeof(double) );//        = ms120_NP1->Values();
+
+MS.read( (char*)&values_ms121_N[i], sizeof(double) );//           = ms121_N->Values();
+MS.read( (char*)&values_ms121_NP1[i], sizeof(double) );//         = ms121_NP1->Values();
+MS.read( (char*)&values_ms122_N[i], sizeof(double) );//           = ms122_N->Values();
+MS.read( (char*)&values_ms122_NP1[i], sizeof(double) );//         = ms122_NP1->Values();
+MS.read( (char*)&values_ms123_N[i], sizeof(double) );//           = ms123_N->Values();
+MS.read( (char*)&values_ms123_NP1[i], sizeof(double) );//         = ms123_NP1->Values();
+MS.read( (char*)&values_ms124_N[i], sizeof(double) );//           = ms124_N->Values();
+MS.read( (char*)&values_ms124_NP1[i], sizeof(double) );//         = ms124_NP1->Values();
+MS.read( (char*)&values_ms125_N[i], sizeof(double) );//           = ms125_N->Values();
+MS.read( (char*)&values_ms125_NP1[i], sizeof(double) );//         = ms125_NP1->Values();
+MS.read( (char*)&values_ms126_N[i], sizeof(double) );//           = ms126_N->Values();
+MS.read( (char*)&values_ms126_NP1[i], sizeof(double) );//         = ms126_NP1->Values();
+MS.read( (char*)&values_ms127_N[i], sizeof(double) );//           = ms127_N->Values();
+MS.read( (char*)&values_ms127_NP1[i], sizeof(double) );//         = ms127_NP1->Values();
+MS.read( (char*)&values_ms128_N[i], sizeof(double) );//           = ms128_N->Values();
+MS.read( (char*)&values_ms128_NP1[i], sizeof(double) );//         = ms128_NP1->Values();
+MS.read( (char*)&values_ms129_N[i], sizeof(double) );//           = ms129_N->Values();
+MS.read( (char*)&values_ms129_NP1[i], sizeof(double) );//         = ms129_NP1->Values();
+MS.read( (char*)&values_ms130_N[i], sizeof(double) );//          = ms130_N->Values();
+MS.read( (char*)&values_ms130_NP1[i], sizeof(double) );//        = ms130_NP1->Values();
+
+MS.read( (char*)&values_ms131_N[i], sizeof(double) );//           = ms131_N->Values();
+MS.read( (char*)&values_ms131_NP1[i], sizeof(double) );//         = ms131_NP1->Values();
+MS.read( (char*)&values_ms132_N[i], sizeof(double) );//           = ms132_N->Values();
+MS.read( (char*)&values_ms132_NP1[i], sizeof(double) );//         = ms132_NP1->Values();
+MS.read( (char*)&values_ms133_N[i], sizeof(double) );//           = ms133_N->Values();
+MS.read( (char*)&values_ms133_NP1[i], sizeof(double) );//         = ms133_NP1->Values();
+MS.read( (char*)&values_ms134_N[i], sizeof(double) );//           = ms134_N->Values();
+MS.read( (char*)&values_ms134_NP1[i], sizeof(double) );//         = ms134_NP1->Values();
+MS.read( (char*)&values_ms135_N[i], sizeof(double) );//           = ms135_N->Values();
+MS.read( (char*)&values_ms135_NP1[i], sizeof(double) );//         = ms135_NP1->Values();
+MS.read( (char*)&values_ms136_N[i], sizeof(double) );//           = ms136_N->Values();
+MS.read( (char*)&values_ms136_NP1[i], sizeof(double) );//         = ms136_NP1->Values();
+MS.read( (char*)&values_ms137_N[i], sizeof(double) );//           = ms137_N->Values();
+MS.read( (char*)&values_ms137_NP1[i], sizeof(double) );//         = ms137_NP1->Values();
+MS.read( (char*)&values_ms138_N[i], sizeof(double) );//           = ms138_N->Values();
+MS.read( (char*)&values_ms138_NP1[i], sizeof(double) );//         = ms138_NP1->Values();
+MS.read( (char*)&values_ms139_N[i], sizeof(double) );//           = ms139_N->Values();
+MS.read( (char*)&values_ms139_NP1[i], sizeof(double) );//         = ms139_NP1->Values();
+MS.read( (char*)&values_ms140_N[i], sizeof(double) );//          = ms140_N->Values();
+MS.read( (char*)&values_ms140_NP1[i], sizeof(double) );//        = ms140_NP1->Values();
+
+MS.read( (char*)&values_ms141_N[i], sizeof(double) );//           = ms141_N->Values();
+MS.read( (char*)&values_ms141_NP1[i], sizeof(double) );//         = ms141_NP1->Values();
+MS.read( (char*)&values_ms142_N[i], sizeof(double) );//           = ms142_N->Values();
+MS.read( (char*)&values_ms142_NP1[i], sizeof(double) );//         = ms142_NP1->Values();
+MS.read( (char*)&values_ms143_N[i], sizeof(double) );//           = ms143_N->Values();
+MS.read( (char*)&values_ms143_NP1[i], sizeof(double) );//         = ms143_NP1->Values();
+MS.read( (char*)&values_ms144_N[i], sizeof(double) );//           = ms144_N->Values();
+MS.read( (char*)&values_ms144_NP1[i], sizeof(double) );//         = ms144_NP1->Values();
+MS.read( (char*)&values_ms145_N[i], sizeof(double) );//           = ms145_N->Values();
+MS.read( (char*)&values_ms145_NP1[i], sizeof(double) );//         = ms145_NP1->Values();
+MS.read( (char*)&values_ms146_N[i], sizeof(double) );//           = ms146_N->Values();
+MS.read( (char*)&values_ms146_NP1[i], sizeof(double) );//         = ms146_NP1->Values();
+MS.read( (char*)&values_ms147_N[i], sizeof(double) );//           = ms147_N->Values();
+MS.read( (char*)&values_ms147_NP1[i], sizeof(double) );//         = ms147_NP1->Values();
+MS.read( (char*)&values_ms148_N[i], sizeof(double) );//           = ms148_N->Values();
+MS.read( (char*)&values_ms148_NP1[i], sizeof(double) );//         = ms148_NP1->Values();
+MS.read( (char*)&values_ms149_N[i], sizeof(double) );//           = ms149_N->Values();
+MS.read( (char*)&values_ms149_NP1[i], sizeof(double) );//         = ms149_NP1->Values();
+MS.read( (char*)&values_ms150_N[i], sizeof(double) );//          = ms150_N->Values();
+MS.read( (char*)&values_ms150_NP1[i], sizeof(double) );//        = ms150_NP1->Values();
+
+MS.read( (char*)&values_ms151_N[i], sizeof(double) );//           = ms151_N->Values();
+MS.read( (char*)&values_ms151_NP1[i], sizeof(double) );//         = ms151_NP1->Values();
+MS.read( (char*)&values_ms152_N[i], sizeof(double) );//           = ms152_N->Values();
+MS.read( (char*)&values_ms152_NP1[i], sizeof(double) );//         = ms152_NP1->Values();
+MS.read( (char*)&values_ms153_N[i], sizeof(double) );//           = ms153_N->Values();
+MS.read( (char*)&values_ms153_NP1[i], sizeof(double) );//         = ms153_NP1->Values();
+MS.read( (char*)&values_ms154_N[i], sizeof(double) );//           = ms154_N->Values();
+MS.read( (char*)&values_ms154_NP1[i], sizeof(double) );//         = ms154_NP1->Values();
+MS.read( (char*)&values_ms155_N[i], sizeof(double) );//           = ms155_N->Values();
+MS.read( (char*)&values_ms155_NP1[i], sizeof(double) );//         = ms155_NP1->Values();
+MS.read( (char*)&values_ms156_N[i], sizeof(double) );//           = ms156_N->Values();
+MS.read( (char*)&values_ms156_NP1[i], sizeof(double) );//         = ms156_NP1->Values();
+MS.read( (char*)&values_ms157_N[i], sizeof(double) );//           = ms157_N->Values();
+MS.read( (char*)&values_ms157_NP1[i], sizeof(double) );//         = ms157_NP1->Values();
+MS.read( (char*)&values_ms158_N[i], sizeof(double) );//           = ms158_N->Values();
+MS.read( (char*)&values_ms158_NP1[i], sizeof(double) );//         = ms158_NP1->Values();
+MS.read( (char*)&values_ms159_N[i], sizeof(double) );//           = ms159_N->Values();
+MS.read( (char*)&values_ms159_NP1[i], sizeof(double) );//         = ms159_NP1->Values();
+MS.read( (char*)&values_ms160_N[i], sizeof(double) );//           = ms160_N->Values();
+MS.read( (char*)&values_ms160_NP1[i], sizeof(double) );//         = ms160_NP1->Values();
+
+MS.read( (char*)&values_ms161_N[i], sizeof(double) );//           = ms161_N->Values();
+MS.read( (char*)&values_ms161_NP1[i], sizeof(double) );//         = ms161_NP1->Values();
+MS.read( (char*)&values_ms162_N[i], sizeof(double) );//           = ms162_N->Values();
+MS.read( (char*)&values_ms162_NP1[i], sizeof(double) );//         = ms162_NP1->Values();
+MS.read( (char*)&values_ms163_N[i], sizeof(double) );//           = ms163_N->Values();
+MS.read( (char*)&values_ms163_NP1[i], sizeof(double) );//         = ms163_NP1->Values();
+MS.read( (char*)&values_ms164_N[i], sizeof(double) );//           = ms164_N->Values();
+MS.read( (char*)&values_ms164_NP1[i], sizeof(double) );//         = ms164_NP1->Values();
+MS.read( (char*)&values_ms165_N[i], sizeof(double) );//           = ms165_N->Values();
+MS.read( (char*)&values_ms165_NP1[i], sizeof(double) );//         = ms165_NP1->Values();
+MS.read( (char*)&values_ms166_N[i], sizeof(double) );//           = ms166_N->Values();
+MS.read( (char*)&values_ms166_NP1[i], sizeof(double) );//         = ms166_NP1->Values();
+MS.read( (char*)&values_ms167_N[i], sizeof(double) );//           = ms167_N->Values();
+MS.read( (char*)&values_ms167_NP1[i], sizeof(double) );//         = ms167_NP1->Values();
+MS.read( (char*)&values_ms168_N[i], sizeof(double) );//           = ms168_N->Values();
+MS.read( (char*)&values_ms168_NP1[i], sizeof(double) );//         = ms168_NP1->Values();
+MS.read( (char*)&values_ms169_N[i], sizeof(double) );//           = ms169_N->Values();
+MS.read( (char*)&values_ms169_NP1[i], sizeof(double) );//         = ms169_NP1->Values();
+MS.read( (char*)&values_ms170_N[i], sizeof(double) );//           = ms170_N->Values();
+MS.read( (char*)&values_ms170_NP1[i], sizeof(double) );//         = ms170_NP1->Values();
+
+MS.read( (char*)&values_ms171_N[i], sizeof(double) );//           = ms171_N->Values();
+MS.read( (char*)&values_ms171_NP1[i], sizeof(double) );//         = ms171_NP1->Values();
+MS.read( (char*)&values_ms172_N[i], sizeof(double) );//           = ms172_N->Values();
+MS.read( (char*)&values_ms172_NP1[i], sizeof(double) );//         = ms172_NP1->Values();
+MS.read( (char*)&values_ms173_N[i], sizeof(double) );//           = ms173_N->Values();
+MS.read( (char*)&values_ms173_NP1[i], sizeof(double) );//         = ms173_NP1->Values();
+MS.read( (char*)&values_ms174_N[i], sizeof(double) );//           = ms174_N->Values();
+MS.read( (char*)&values_ms174_NP1[i], sizeof(double) );//         = ms174_NP1->Values();
+MS.read( (char*)&values_ms175_N[i], sizeof(double) );//           = ms175_N->Values();
+MS.read( (char*)&values_ms175_NP1[i], sizeof(double) );//         = ms175_NP1->Values();
+MS.read( (char*)&values_ms176_N[i], sizeof(double) );//           = ms176_N->Values();
+MS.read( (char*)&values_ms176_NP1[i], sizeof(double) );//         = ms176_NP1->Values();
+MS.read( (char*)&values_ms177_N[i], sizeof(double) );//           = ms177_N->Values();
+MS.read( (char*)&values_ms177_NP1[i], sizeof(double) );//         = ms177_NP1->Values();
+MS.read( (char*)&values_ms178_N[i], sizeof(double) );//           = ms178_N->Values();
+MS.read( (char*)&values_ms178_NP1[i], sizeof(double) );//         = ms178_NP1->Values();
+MS.read( (char*)&values_ms179_N[i], sizeof(double) );//           = ms179_N->Values();
+MS.read( (char*)&values_ms179_NP1[i], sizeof(double) );//         = ms179_NP1->Values();
+MS.read( (char*)&values_ms180_N[i], sizeof(double) );//           = ms180_N->Values();
+MS.read( (char*)&values_ms180_NP1[i], sizeof(double) );//         = ms180_NP1->Values();
+
+MS.read( (char*)&values_ms181_N[i], sizeof(double) );//           = ms181_N->Values();
+MS.read( (char*)&values_ms181_NP1[i], sizeof(double) );//         = ms181_NP1->Values();
+MS.read( (char*)&values_ms182_N[i], sizeof(double) );//           = ms182_N->Values();
+MS.read( (char*)&values_ms182_NP1[i], sizeof(double) );//         = ms182_NP1->Values();
+MS.read( (char*)&values_ms183_N[i], sizeof(double) );//           = ms183_N->Values();
+MS.read( (char*)&values_ms183_NP1[i], sizeof(double) );//         = ms183_NP1->Values();
+MS.read( (char*)&values_ms184_N[i], sizeof(double) );//           = ms184_N->Values();
+MS.read( (char*)&values_ms184_NP1[i], sizeof(double) );//         = ms184_NP1->Values();
+MS.read( (char*)&values_ms185_N[i], sizeof(double) );//           = ms185_N->Values();
+MS.read( (char*)&values_ms185_NP1[i], sizeof(double) );//         = ms185_NP1->Values();
+MS.read( (char*)&values_ms186_N[i], sizeof(double) );//           = ms186_N->Values();
+MS.read( (char*)&values_ms186_NP1[i], sizeof(double) );//         = ms186_NP1->Values();
+MS.read( (char*)&values_ms187_N[i], sizeof(double) );//           = ms187_N->Values();
+MS.read( (char*)&values_ms187_NP1[i], sizeof(double) );//         = ms187_NP1->Values();
+MS.read( (char*)&values_ms188_N[i], sizeof(double) );//           = ms188_N->Values();
+MS.read( (char*)&values_ms188_NP1[i], sizeof(double) );//         = ms188_NP1->Values();
+MS.read( (char*)&values_ms189_N[i], sizeof(double) );//           = ms189_N->Values();
+MS.read( (char*)&values_ms189_NP1[i], sizeof(double) );//         = ms189_NP1->Values();
+
+// Micro Damage
+
+MD.read( (char*)&values_md1_N[i], sizeof(double) );//           = md1_N->Values();
+MD.read( (char*)&values_md1_NP1[i], sizeof(double) );//         = md1_NP1->Values();
+MD.read( (char*)&values_md2_N[i], sizeof(double) );//           = md2_N->Values();
+MD.read( (char*)&values_md2_NP1[i], sizeof(double) );//         = md2_NP1->Values();
+MD.read( (char*)&values_md3_N[i], sizeof(double) );//           = md3_N->Values();
+MD.read( (char*)&values_md3_NP1[i], sizeof(double) );//         = md3_NP1->Values();
+MD.read( (char*)&values_md4_N[i], sizeof(double) );//           = md4_N->Values();
+MD.read( (char*)&values_md4_NP1[i], sizeof(double) );//         = md4_NP1->Values();
+MD.read( (char*)&values_md5_N[i], sizeof(double) );//           = md5_N->Values();
+MD.read( (char*)&values_md5_NP1[i], sizeof(double) );//         = md5_NP1->Values();
+MD.read( (char*)&values_md6_N[i], sizeof(double) );//           = md6_N->Values();
+MD.read( (char*)&values_md6_NP1[i], sizeof(double) );//         = md6_NP1->Values();
+MD.read( (char*)&values_md7_N[i], sizeof(double) );//           = md7_N->Values();
+MD.read( (char*)&values_md7_NP1[i], sizeof(double) );//         = md7_NP1->Values();
+MD.read( (char*)&values_md8_N[i], sizeof(double) );//           = md8_N->Values();
+MD.read( (char*)&values_md8_NP1[i], sizeof(double) );//         = md8_NP1->Values();
+MD.read( (char*)&values_md9_N[i], sizeof(double) );//           = md9_N->Values();
+MD.read( (char*)&values_md9_NP1[i], sizeof(double) );//         = md9_NP1->Values();
+MD.read( (char*)&values_md10_N[i], sizeof(double) );//          = md10_N->Values();
+MD.read( (char*)&values_md10_NP1[i], sizeof(double) );//        = md10_NP1->Values();
+
+MD.read( (char*)&values_md11_N[i], sizeof(double) );//           = md11_N->Values();
+MD.read( (char*)&values_md11_NP1[i], sizeof(double) );//         = md11_NP1->Values();
+MD.read( (char*)&values_md12_N[i], sizeof(double) );//           = md12_N->Values();
+MD.read( (char*)&values_md12_NP1[i], sizeof(double) );//         = md12_NP1->Values();
+MD.read( (char*)&values_md13_N[i], sizeof(double) );//           = md13_N->Values();
+MD.read( (char*)&values_md13_NP1[i], sizeof(double) );//         = md13_NP1->Values();
+MD.read( (char*)&values_md14_N[i], sizeof(double) );//           = md14_N->Values();
+MD.read( (char*)&values_md14_NP1[i], sizeof(double) );//         = md14_NP1->Values();
+MD.read( (char*)&values_md15_N[i], sizeof(double) );//           = md15_N->Values();
+MD.read( (char*)&values_md15_NP1[i], sizeof(double) );//         = md15_NP1->Values();
+MD.read( (char*)&values_md16_N[i], sizeof(double) );//           = md16_N->Values();
+MD.read( (char*)&values_md16_NP1[i], sizeof(double) );//         = md16_NP1->Values();
+MD.read( (char*)&values_md17_N[i], sizeof(double) );//           = md17_N->Values();
+MD.read( (char*)&values_md17_NP1[i], sizeof(double) );//         = md17_NP1->Values();
+MD.read( (char*)&values_md18_N[i], sizeof(double) );//           = md18_N->Values();
+MD.read( (char*)&values_md18_NP1[i], sizeof(double) );//         = md18_NP1->Values();
+MD.read( (char*)&values_md19_N[i], sizeof(double) );//           = md19_N->Values();
+MD.read( (char*)&values_md19_NP1[i], sizeof(double) );//         = md19_NP1->Values();
+MD.read( (char*)&values_md20_N[i], sizeof(double) );//          = md20_N->Values();
+MD.read( (char*)&values_md20_NP1[i], sizeof(double) );//        = md20_NP1->Values();
+
+MD.read( (char*)&values_md21_N[i], sizeof(double) );//           = md21_N->Values();
+MD.read( (char*)&values_md21_NP1[i], sizeof(double) );//         = md21_NP1->Values();
+MD.read( (char*)&values_md22_N[i], sizeof(double) );//           = md22_N->Values();
+MD.read( (char*)&values_md22_NP1[i], sizeof(double) );//         = md22_NP1->Values();
+MD.read( (char*)&values_md23_N[i], sizeof(double) );//           = md23_N->Values();
+MD.read( (char*)&values_md23_NP1[i], sizeof(double) );//         = md23_NP1->Values();
+MD.read( (char*)&values_md24_N[i], sizeof(double) );//           = md24_N->Values();
+MD.read( (char*)&values_md24_NP1[i], sizeof(double) );//         = md24_NP1->Values();
+MD.read( (char*)&values_md25_N[i], sizeof(double) );//           = md25_N->Values();
+MD.read( (char*)&values_md25_NP1[i], sizeof(double) );//         = md25_NP1->Values();
+MD.read( (char*)&values_md26_N[i], sizeof(double) );//           = md26_N->Values();
+MD.read( (char*)&values_md26_NP1[i], sizeof(double) );//         = md26_NP1->Values();
+MD.read( (char*)&values_md27_N[i], sizeof(double) );//           = md27_N->Values();
+MD.read( (char*)&values_md27_NP1[i], sizeof(double) );//         = md27_NP1->Values();
+MD.read( (char*)&values_md28_N[i], sizeof(double) );//           = md28_N->Values();
+MD.read( (char*)&values_md28_NP1[i], sizeof(double) );//         = md28_NP1->Values();
+MD.read( (char*)&values_md29_N[i], sizeof(double) );//           = md29_N->Values();
+MD.read( (char*)&values_md29_NP1[i], sizeof(double) );//         = md29_NP1->Values();
+MD.read( (char*)&values_md30_N[i], sizeof(double) );//           = md30_N->Values();
+MD.read( (char*)&values_md30_NP1[i], sizeof(double) );//         = md30_NP1->Values();
+
+MD.read( (char*)&values_md31_N[i], sizeof(double) );//           = md31_N->Values();
+MD.read( (char*)&values_md31_NP1[i], sizeof(double) );//         = md31_NP1->Values();
+MD.read( (char*)&values_md32_N[i], sizeof(double) );//           = md32_N->Values();
+MD.read( (char*)&values_md32_NP1[i], sizeof(double) );//         = md32_NP1->Values();
+MD.read( (char*)&values_md33_N[i], sizeof(double) );//           = md33_N->Values();
+MD.read( (char*)&values_md33_NP1[i], sizeof(double) );//         = md33_NP1->Values();
+MD.read( (char*)&values_md34_N[i], sizeof(double) );//           = md34_N->Values();
+MD.read( (char*)&values_md34_NP1[i], sizeof(double) );//         = md34_NP1->Values();
+MD.read( (char*)&values_md35_N[i], sizeof(double) );//           = md35_N->Values();
+MD.read( (char*)&values_md35_NP1[i], sizeof(double) );//         = md35_NP1->Values();
+MD.read( (char*)&values_md36_N[i], sizeof(double) );//           = md36_N->Values();
+MD.read( (char*)&values_md36_NP1[i], sizeof(double) );//         = md36_NP1->Values();
+MD.read( (char*)&values_md37_N[i], sizeof(double) );//           = md37_N->Values();
+MD.read( (char*)&values_md37_NP1[i], sizeof(double) );//         = md37_NP1->Values();
+
+/////// Bond Level Microstates //////////////////
+BMS.read( (char*)&values_Bms1_N[i], sizeof(double) );//           = Bms1_N->Values();
+BMS.read( (char*)&values_Bms1_NP1[i], sizeof(double) );//         = Bms1_NP1->Values();
+BMS.read( (char*)&values_Bms2_N[i], sizeof(double) );//           = Bms2_N->Values();
+BMS.read( (char*)&values_Bms2_NP1[i], sizeof(double) );//         = Bms2_NP1->Values();
+BMS.read( (char*)&values_Bms3_N[i], sizeof(double) );//           = Bms3_N->Values();
+BMS.read( (char*)&values_Bms3_NP1[i], sizeof(double) );//         = Bms3_NP1->Values();
+BMS.read( (char*)&values_Bms4_N[i], sizeof(double) );//           = Bms4_N->Values();
+BMS.read( (char*)&values_Bms4_NP1[i], sizeof(double) );//         = Bms4_NP1->Values();
+BMS.read( (char*)&values_Bms5_N[i], sizeof(double) );//           = Bms5_N->Values();
+BMS.read( (char*)&values_Bms5_NP1[i], sizeof(double) );//         = Bms5_NP1->Values();
+BMS.read( (char*)&values_Bms6_N[i], sizeof(double) );//           = Bms6_N->Values();
+BMS.read( (char*)&values_Bms6_NP1[i], sizeof(double) );//         = Bms6_NP1->Values();
+BMS.read( (char*)&values_Bms7_N[i], sizeof(double) );//           = Bms7_N->Values();
+BMS.read( (char*)&values_Bms7_NP1[i], sizeof(double) );//         = Bms7_NP1->Values();
+BMS.read( (char*)&values_Bms8_N[i], sizeof(double) );//           = Bms8_N->Values();
+BMS.read( (char*)&values_Bms8_NP1[i], sizeof(double) );//         = Bms8_NP1->Values();
+BMS.read( (char*)&values_Bms9_N[i], sizeof(double) );//           = Bms9_N->Values();
+BMS.read( (char*)&values_Bms9_NP1[i], sizeof(double) );//         = Bms9_NP1->Values();
+BMS.read( (char*)&values_Bms10_N[i], sizeof(double) );//          = Bms10_N->Values();
+BMS.read( (char*)&values_Bms10_NP1[i], sizeof(double) );//        = Bms10_NP1->Values();
+
+BMS.read( (char*)&values_Bms11_N[i], sizeof(double) );//           = Bms11_N->Values();
+BMS.read( (char*)&values_Bms11_NP1[i], sizeof(double) );//         = Bms11_NP1->Values();
+BMS.read( (char*)&values_Bms12_N[i], sizeof(double) );//           = Bms12_N->Values();
+BMS.read( (char*)&values_Bms12_NP1[i], sizeof(double) );//         = Bms12_NP1->Values();
+BMS.read( (char*)&values_Bms13_N[i], sizeof(double) );//           = Bms13_N->Values();
+BMS.read( (char*)&values_Bms13_NP1[i], sizeof(double) );//         = Bms13_NP1->Values();
+BMS.read( (char*)&values_Bms14_N[i], sizeof(double) );//           = Bms14_N->Values();
+BMS.read( (char*)&values_Bms14_NP1[i], sizeof(double) );//         = Bms14_NP1->Values();
+BMS.read( (char*)&values_Bms15_N[i], sizeof(double) );//           = Bms15_N->Values();
+BMS.read( (char*)&values_Bms15_NP1[i], sizeof(double) );//         = Bms15_NP1->Values();
+BMS.read( (char*)&values_Bms16_N[i], sizeof(double) );//           = Bms16_N->Values();
+BMS.read( (char*)&values_Bms16_NP1[i], sizeof(double) );//         = Bms16_NP1->Values();
+BMS.read( (char*)&values_Bms17_N[i], sizeof(double) );//           = Bms17_N->Values();
+BMS.read( (char*)&values_Bms17_NP1[i], sizeof(double) );//         = Bms17_NP1->Values();
+BMS.read( (char*)&values_Bms18_N[i], sizeof(double) );//           = Bms18_N->Values();
+BMS.read( (char*)&values_Bms18_NP1[i], sizeof(double) );//         = Bms18_NP1->Values();
+BMS.read( (char*)&values_Bms19_N[i], sizeof(double) );//           = Bms19_N->Values();
+BMS.read( (char*)&values_Bms19_NP1[i], sizeof(double) );//         = Bms19_NP1->Values();
+BMS.read( (char*)&values_Bms20_N[i], sizeof(double) );//          = Bms20_N->Values();
+BMS.read( (char*)&values_Bms20_NP1[i], sizeof(double) );//        = Bms20_NP1->Values();
+
+BMS.read( (char*)&values_Bms21_N[i], sizeof(double) );//           = Bms21_N->Values();
+BMS.read( (char*)&values_Bms21_NP1[i], sizeof(double) );//         = Bms21_NP1->Values();
+BMS.read( (char*)&values_Bms22_N[i], sizeof(double) );//           = Bms22_N->Values();
+BMS.read( (char*)&values_Bms22_NP1[i], sizeof(double) );//         = Bms22_NP1->Values();
+BMS.read( (char*)&values_Bms23_N[i], sizeof(double) );//           = Bms23_N->Values();
+BMS.read( (char*)&values_Bms23_NP1[i], sizeof(double) );//         = Bms23_NP1->Values();
+BMS.read( (char*)&values_Bms24_N[i], sizeof(double) );//           = Bms24_N->Values();
+BMS.read( (char*)&values_Bms24_NP1[i], sizeof(double) );//         = Bms24_NP1->Values();
+BMS.read( (char*)&values_Bms25_N[i], sizeof(double) );//           = Bms25_N->Values();
+BMS.read( (char*)&values_Bms25_NP1[i], sizeof(double) );//         = Bms25_NP1->Values();
+BMS.read( (char*)&values_Bms26_N[i], sizeof(double) );//           = Bms26_N->Values();
+BMS.read( (char*)&values_Bms26_NP1[i], sizeof(double) );//         = Bms26_NP1->Values();
+BMS.read( (char*)&values_Bms27_N[i], sizeof(double) );//           = Bms27_N->Values();
+BMS.read( (char*)&values_Bms27_NP1[i], sizeof(double) );//         = Bms27_NP1->Values();
+BMS.read( (char*)&values_Bms28_N[i], sizeof(double) );//           = Bms28_N->Values();
+BMS.read( (char*)&values_Bms28_NP1[i], sizeof(double) );//         = Bms28_NP1->Values();
+BMS.read( (char*)&values_Bms29_N[i], sizeof(double) );//           = Bms29_N->Values();
+BMS.read( (char*)&values_Bms29_NP1[i], sizeof(double) );//         = Bms29_NP1->Values();
+BMS.read( (char*)&values_Bms30_N[i], sizeof(double) );//          = Bms30_N->Values();
+BMS.read( (char*)&values_Bms30_NP1[i], sizeof(double) );//        = Bms30_NP1->Values();
+
+BMS.read( (char*)&values_Bms31_N[i], sizeof(double) );//           = Bms31_N->Values();
+BMS.read( (char*)&values_Bms31_NP1[i], sizeof(double) );//         = Bms31_NP1->Values();
+BMS.read( (char*)&values_Bms32_N[i], sizeof(double) );//           = Bms32_N->Values();
+BMS.read( (char*)&values_Bms32_NP1[i], sizeof(double) );//         = Bms32_NP1->Values();
+BMS.read( (char*)&values_Bms33_N[i], sizeof(double) );//           = Bms33_N->Values();
+BMS.read( (char*)&values_Bms33_NP1[i], sizeof(double) );//         = Bms33_NP1->Values();
+BMS.read( (char*)&values_Bms34_N[i], sizeof(double) );//           = Bms34_N->Values();
+BMS.read( (char*)&values_Bms34_NP1[i], sizeof(double) );//         = Bms34_NP1->Values();
+BMS.read( (char*)&values_Bms35_N[i], sizeof(double) );//           = Bms35_N->Values();
+BMS.read( (char*)&values_Bms35_NP1[i], sizeof(double) );//         = Bms35_NP1->Values();
+BMS.read( (char*)&values_Bms36_N[i], sizeof(double) );//           = Bms36_N->Values();
+BMS.read( (char*)&values_Bms36_NP1[i], sizeof(double) );//         = Bms36_NP1->Values();
+BMS.read( (char*)&values_Bms37_N[i], sizeof(double) );//           = Bms37_N->Values();
+BMS.read( (char*)&values_Bms37_NP1[i], sizeof(double) );//         = Bms37_NP1->Values();
+BMS.read( (char*)&values_Bms38_N[i], sizeof(double) );//           = Bms38_N->Values();
+BMS.read( (char*)&values_Bms38_NP1[i], sizeof(double) );//         = Bms38_NP1->Values();
+BMS.read( (char*)&values_Bms39_N[i], sizeof(double) );//           = Bms39_N->Values();
+BMS.read( (char*)&values_Bms39_NP1[i], sizeof(double) );//         = Bms39_NP1->Values();
+BMS.read( (char*)&values_Bms40_N[i], sizeof(double) );//          = Bms40_N->Values();
+BMS.read( (char*)&values_Bms40_NP1[i], sizeof(double) );//        = Bms40_NP1->Values();
+
+BMS.read( (char*)&values_Bms41_N[i], sizeof(double) );//           = Bms41_N->Values();
+BMS.read( (char*)&values_Bms41_NP1[i], sizeof(double) );//         = Bms41_NP1->Values();
+BMS.read( (char*)&values_Bms42_N[i], sizeof(double) );//           = Bms42_N->Values();
+BMS.read( (char*)&values_Bms42_NP1[i], sizeof(double) );//         = Bms42_NP1->Values();
+BMS.read( (char*)&values_Bms43_N[i], sizeof(double) );//           = Bms43_N->Values();
+BMS.read( (char*)&values_Bms43_NP1[i], sizeof(double) );//         = Bms43_NP1->Values();
+BMS.read( (char*)&values_Bms44_N[i], sizeof(double) );//           = Bms44_N->Values();
+BMS.read( (char*)&values_Bms44_NP1[i], sizeof(double) );//         = Bms44_NP1->Values();
+BMS.read( (char*)&values_Bms45_N[i], sizeof(double) );//           = Bms45_N->Values();
+BMS.read( (char*)&values_Bms45_NP1[i], sizeof(double) );//         = Bms45_NP1->Values();
+BMS.read( (char*)&values_Bms46_N[i], sizeof(double) );//           = Bms46_N->Values();
+BMS.read( (char*)&values_Bms46_NP1[i], sizeof(double) );//         = Bms46_NP1->Values();
+BMS.read( (char*)&values_Bms47_N[i], sizeof(double) );//           = Bms47_N->Values();
+BMS.read( (char*)&values_Bms47_NP1[i], sizeof(double) );//         = Bms47_NP1->Values();
+BMS.read( (char*)&values_Bms48_N[i], sizeof(double) );//           = Bms48_N->Values();
+BMS.read( (char*)&values_Bms48_NP1[i], sizeof(double) );//         = Bms48_NP1->Values();
+BMS.read( (char*)&values_Bms49_N[i], sizeof(double) );//           = Bms49_N->Values();
+BMS.read( (char*)&values_Bms49_NP1[i], sizeof(double) );//         = Bms49_NP1->Values();
+BMS.read( (char*)&values_Bms50_N[i], sizeof(double) );//          = Bms50_N->Values();
+BMS.read( (char*)&values_Bms50_NP1[i], sizeof(double) );//        = Bms50_NP1->Values();
+
+BMS.read( (char*)&values_Bms51_N[i], sizeof(double) );//           = Bms51_N->Values();
+BMS.read( (char*)&values_Bms51_NP1[i], sizeof(double) );//         = Bms51_NP1->Values();
+BMS.read( (char*)&values_Bms52_N[i], sizeof(double) );//           = Bms52_N->Values();
+BMS.read( (char*)&values_Bms52_NP1[i], sizeof(double) );//         = Bms52_NP1->Values();
+BMS.read( (char*)&values_Bms53_N[i], sizeof(double) );//           = Bms53_N->Values();
+BMS.read( (char*)&values_Bms53_NP1[i], sizeof(double) );//         = Bms53_NP1->Values();
+BMS.read( (char*)&values_Bms54_N[i], sizeof(double) );//           = Bms54_N->Values();
+BMS.read( (char*)&values_Bms54_NP1[i], sizeof(double) );//         = Bms54_NP1->Values();
+BMS.read( (char*)&values_Bms55_N[i], sizeof(double) );//           = Bms55_N->Values();
+BMS.read( (char*)&values_Bms55_NP1[i], sizeof(double) );//         = Bms55_NP1->Values();
+BMS.read( (char*)&values_Bms56_N[i], sizeof(double) );//           = Bms56_N->Values();
+BMS.read( (char*)&values_Bms56_NP1[i], sizeof(double) );//         = Bms56_NP1->Values();
+BMS.read( (char*)&values_Bms57_N[i], sizeof(double) );//           = Bms57_N->Values();
+BMS.read( (char*)&values_Bms57_NP1[i], sizeof(double) );//         = Bms57_NP1->Values();
+BMS.read( (char*)&values_Bms58_N[i], sizeof(double) );//           = Bms58_N->Values();
+BMS.read( (char*)&values_Bms58_NP1[i], sizeof(double) );//         = Bms58_NP1->Values();
+BMS.read( (char*)&values_Bms59_N[i], sizeof(double) );//           = Bms59_N->Values();
+BMS.read( (char*)&values_Bms59_NP1[i], sizeof(double) );//         = Bms59_NP1->Values();
+BMS.read( (char*)&values_Bms60_N[i], sizeof(double) );//           = Bms60_N->Values();
+BMS.read( (char*)&values_Bms60_NP1[i], sizeof(double) );//         = Bms60_NP1->Values();
+
+BMS.read( (char*)&values_Bms61_N[i], sizeof(double) );//           = Bms61_N->Values();
+BMS.read( (char*)&values_Bms61_NP1[i], sizeof(double) );//         = Bms61_NP1->Values();
+BMS.read( (char*)&values_Bms62_N[i], sizeof(double) );//           = Bms62_N->Values();
+BMS.read( (char*)&values_Bms62_NP1[i], sizeof(double) );//         = Bms62_NP1->Values();
+BMS.read( (char*)&values_Bms63_N[i], sizeof(double) );//           = Bms63_N->Values();
+BMS.read( (char*)&values_Bms63_NP1[i], sizeof(double) );//         = Bms63_NP1->Values();
+BMS.read( (char*)&values_Bms64_N[i], sizeof(double) );//           = Bms64_N->Values();
+BMS.read( (char*)&values_Bms64_NP1[i], sizeof(double) );//         = Bms64_NP1->Values();
+BMS.read( (char*)&values_Bms65_N[i], sizeof(double) );//           = Bms65_N->Values();
+BMS.read( (char*)&values_Bms65_NP1[i], sizeof(double) );//         = Bms65_NP1->Values();
+BMS.read( (char*)&values_Bms66_N[i], sizeof(double) );//           = Bms66_N->Values();
+BMS.read( (char*)&values_Bms66_NP1[i], sizeof(double) );//         = Bms66_NP1->Values();
+BMS.read( (char*)&values_Bms67_N[i], sizeof(double) );//           = Bms67_N->Values();
+BMS.read( (char*)&values_Bms67_NP1[i], sizeof(double) );//         = Bms67_NP1->Values();
+BMS.read( (char*)&values_Bms68_N[i], sizeof(double) );//           = Bms68_N->Values();
+BMS.read( (char*)&values_Bms68_NP1[i], sizeof(double) );//         = Bms68_NP1->Values();
+BMS.read( (char*)&values_Bms69_N[i], sizeof(double) );//           = Bms69_N->Values();
+BMS.read( (char*)&values_Bms69_NP1[i], sizeof(double) );//         = Bms69_NP1->Values();
+BMS.read( (char*)&values_Bms70_N[i], sizeof(double) );//           = Bms70_N->Values();
+BMS.read( (char*)&values_Bms70_NP1[i], sizeof(double) );//         = Bms70_NP1->Values();
+
+BMS.read( (char*)&values_Bms71_N[i], sizeof(double) );//           = Bms71_N->Values();
+BMS.read( (char*)&values_Bms71_NP1[i], sizeof(double) );//         = Bms71_NP1->Values();
+BMS.read( (char*)&values_Bms72_N[i], sizeof(double) );//           = Bms72_N->Values();
+BMS.read( (char*)&values_Bms72_NP1[i], sizeof(double) );//         = Bms72_NP1->Values();
+BMS.read( (char*)&values_Bms73_N[i], sizeof(double) );//           = Bms73_N->Values();
+BMS.read( (char*)&values_Bms73_NP1[i], sizeof(double) );//         = Bms73_NP1->Values();
+BMS.read( (char*)&values_Bms74_N[i], sizeof(double) );//           = Bms74_N->Values();
+BMS.read( (char*)&values_Bms74_NP1[i], sizeof(double) );//         = Bms74_NP1->Values();
+BMS.read( (char*)&values_Bms75_N[i], sizeof(double) );//           = Bms75_N->Values();
+BMS.read( (char*)&values_Bms75_NP1[i], sizeof(double) );//         = Bms75_NP1->Values();
+BMS.read( (char*)&values_Bms76_N[i], sizeof(double) );//           = Bms76_N->Values();
+BMS.read( (char*)&values_Bms76_NP1[i], sizeof(double) );//         = Bms76_NP1->Values();
+BMS.read( (char*)&values_Bms77_N[i], sizeof(double) );//           = Bms77_N->Values();
+BMS.read( (char*)&values_Bms77_NP1[i], sizeof(double) );//         = Bms77_NP1->Values();
+BMS.read( (char*)&values_Bms78_N[i], sizeof(double) );//           = Bms78_N->Values();
+BMS.read( (char*)&values_Bms78_NP1[i], sizeof(double) );//         = Bms78_NP1->Values();
+BMS.read( (char*)&values_Bms79_N[i], sizeof(double) );//           = Bms79_N->Values();
+BMS.read( (char*)&values_Bms79_NP1[i], sizeof(double) );//         = Bms79_NP1->Values();
+BMS.read( (char*)&values_Bms80_N[i], sizeof(double) );//           = Bms80_N->Values();
+BMS.read( (char*)&values_Bms80_NP1[i], sizeof(double) );//         = Bms80_NP1->Values();
+
+BMS.read( (char*)&values_Bms81_N[i], sizeof(double) );//           = Bms81_N->Values();
+BMS.read( (char*)&values_Bms81_NP1[i], sizeof(double) );//         = Bms81_NP1->Values();
+BMS.read( (char*)&values_Bms82_N[i], sizeof(double) );//           = Bms82_N->Values();
+BMS.read( (char*)&values_Bms82_NP1[i], sizeof(double) );//         = Bms82_NP1->Values();
+BMS.read( (char*)&values_Bms83_N[i], sizeof(double) );//           = Bms83_N->Values();
+BMS.read( (char*)&values_Bms83_NP1[i], sizeof(double) );//         = Bms83_NP1->Values();
+BMS.read( (char*)&values_Bms84_N[i], sizeof(double) );//           = Bms84_N->Values();
+BMS.read( (char*)&values_Bms84_NP1[i], sizeof(double) );//         = Bms84_NP1->Values();
+BMS.read( (char*)&values_Bms85_N[i], sizeof(double) );//           = Bms85_N->Values();
+BMS.read( (char*)&values_Bms85_NP1[i], sizeof(double) );//         = Bms85_NP1->Values();
+BMS.read( (char*)&values_Bms86_N[i], sizeof(double) );//           = Bms86_N->Values();
+BMS.read( (char*)&values_Bms86_NP1[i], sizeof(double) );//         = Bms86_NP1->Values();
+BMS.read( (char*)&values_Bms87_N[i], sizeof(double) );//           = Bms87_N->Values();
+BMS.read( (char*)&values_Bms87_NP1[i], sizeof(double) );//         = Bms87_NP1->Values();
+BMS.read( (char*)&values_Bms88_N[i], sizeof(double) );//           = Bms88_N->Values();
+BMS.read( (char*)&values_Bms88_NP1[i], sizeof(double) );//         = Bms88_NP1->Values();
+BMS.read( (char*)&values_Bms89_N[i], sizeof(double) );//           = Bms89_N->Values();
+BMS.read( (char*)&values_Bms89_NP1[i], sizeof(double) );//         = Bms89_NP1->Values();
+BMS.read( (char*)&values_Bms90_N[i], sizeof(double) );//           = Bms90_N->Values();
+BMS.read( (char*)&values_Bms90_NP1[i], sizeof(double) );//         = Bms90_NP1->Values();
+
+BMS.read( (char*)&values_Bms91_N[i], sizeof(double) );//           = Bms91_N->Values();
+BMS.read( (char*)&values_Bms91_NP1[i], sizeof(double) );//         = Bms91_NP1->Values();
+BMS.read( (char*)&values_Bms92_N[i], sizeof(double) );//           = Bms92_N->Values();
+BMS.read( (char*)&values_Bms92_NP1[i], sizeof(double) );//         = Bms92_NP1->Values();
+BMS.read( (char*)&values_Bms93_N[i], sizeof(double) );//           = Bms93_N->Values();
+BMS.read( (char*)&values_Bms93_NP1[i], sizeof(double) );//         = Bms93_NP1->Values();
+BMS.read( (char*)&values_Bms94_N[i], sizeof(double) );//           = Bms94_N->Values();
+BMS.read( (char*)&values_Bms94_NP1[i], sizeof(double) );//         = Bms94_NP1->Values();
+BMS.read( (char*)&values_Bms95_N[i], sizeof(double) );//           = Bms95_N->Values();
+BMS.read( (char*)&values_Bms95_NP1[i], sizeof(double) );//         = Bms95_NP1->Values();
+BMS.read( (char*)&values_Bms96_N[i], sizeof(double) );//           = Bms96_N->Values();
+BMS.read( (char*)&values_Bms96_NP1[i], sizeof(double) );//         = Bms96_NP1->Values();
+BMS.read( (char*)&values_Bms97_N[i], sizeof(double) );//           = Bms97_N->Values();
+BMS.read( (char*)&values_Bms97_NP1[i], sizeof(double) );//         = Bms97_NP1->Values();
+BMS.read( (char*)&values_Bms98_N[i], sizeof(double) );//           = Bms98_N->Values();
+BMS.read( (char*)&values_Bms98_NP1[i], sizeof(double) );//         = Bms98_NP1->Values();
+BMS.read( (char*)&values_Bms99_N[i], sizeof(double) );//           = Bms99_N->Values();
+BMS.read( (char*)&values_Bms99_NP1[i], sizeof(double) );//         = Bms99_NP1->Values();
+BMS.read( (char*)&values_Bms100_N[i], sizeof(double) );//           = Bms100_N->Values();
+BMS.read( (char*)&values_Bms100_NP1[i], sizeof(double) );//         = Bms100_NP1->Values();
+
+
+BMS.read( (char*)&values_Bms101_N[i], sizeof(double) );//           = Bms101_N->Values();
+BMS.read( (char*)&values_Bms101_NP1[i], sizeof(double) );//         = Bms101_NP1->Values();
+BMS.read( (char*)&values_Bms102_N[i], sizeof(double) );//           = Bms102_N->Values();
+BMS.read( (char*)&values_Bms102_NP1[i], sizeof(double) );//         = Bms102_NP1->Values();
+BMS.read( (char*)&values_Bms103_N[i], sizeof(double) );//           = Bms103_N->Values();
+BMS.read( (char*)&values_Bms103_NP1[i], sizeof(double) );//         = Bms103_NP1->Values();
+BMS.read( (char*)&values_Bms104_N[i], sizeof(double) );//           = Bms104_N->Values();
+BMS.read( (char*)&values_Bms104_NP1[i], sizeof(double) );//         = Bms104_NP1->Values();
+BMS.read( (char*)&values_Bms105_N[i], sizeof(double) );//           = Bms105_N->Values();
+BMS.read( (char*)&values_Bms105_NP1[i], sizeof(double) );//         = Bms105_NP1->Values();
+BMS.read( (char*)&values_Bms106_N[i], sizeof(double) );//           = Bms106_N->Values();
+BMS.read( (char*)&values_Bms106_NP1[i], sizeof(double) );//         = Bms106_NP1->Values();
+BMS.read( (char*)&values_Bms107_N[i], sizeof(double) );//           = Bms107_N->Values();
+BMS.read( (char*)&values_Bms107_NP1[i], sizeof(double) );//         = Bms107_NP1->Values();
+BMS.read( (char*)&values_Bms108_N[i], sizeof(double) );//           = Bms108_N->Values();
+BMS.read( (char*)&values_Bms108_NP1[i], sizeof(double) );//         = Bms108_NP1->Values();
+BMS.read( (char*)&values_Bms109_N[i], sizeof(double) );//           = Bms109_N->Values();
+BMS.read( (char*)&values_Bms109_NP1[i], sizeof(double) );//         = Bms109_NP1->Values();
+BMS.read( (char*)&values_Bms110_N[i], sizeof(double) );//          = Bms100_N->Values();
+BMS.read( (char*)&values_Bms110_NP1[i], sizeof(double) );//        = Bms100_NP1->Values();
+
+BMS.read( (char*)&values_Bms111_N[i], sizeof(double) );//           = Bms111_N->Values();
+BMS.read( (char*)&values_Bms111_NP1[i], sizeof(double) );//         = Bms111_NP1->Values();
+BMS.read( (char*)&values_Bms112_N[i], sizeof(double) );//           = Bms112_N->Values();
+BMS.read( (char*)&values_Bms112_NP1[i], sizeof(double) );//         = Bms112_NP1->Values();
+BMS.read( (char*)&values_Bms113_N[i], sizeof(double) );//           = Bms113_N->Values();
+BMS.read( (char*)&values_Bms113_NP1[i], sizeof(double) );//         = Bms113_NP1->Values();
+BMS.read( (char*)&values_Bms114_N[i], sizeof(double) );//           = Bms114_N->Values();
+BMS.read( (char*)&values_Bms114_NP1[i], sizeof(double) );//         = Bms114_NP1->Values();
+BMS.read( (char*)&values_Bms115_N[i], sizeof(double) );//           = Bms115_N->Values();
+BMS.read( (char*)&values_Bms115_NP1[i], sizeof(double) );//         = Bms115_NP1->Values();
+BMS.read( (char*)&values_Bms116_N[i], sizeof(double) );//           = Bms116_N->Values();
+BMS.read( (char*)&values_Bms116_NP1[i], sizeof(double) );//         = Bms116_NP1->Values();
+BMS.read( (char*)&values_Bms117_N[i], sizeof(double) );//           = Bms117_N->Values();
+BMS.read( (char*)&values_Bms117_NP1[i], sizeof(double) );//         = Bms117_NP1->Values();
+BMS.read( (char*)&values_Bms118_N[i], sizeof(double) );//           = Bms118_N->Values();
+BMS.read( (char*)&values_Bms118_NP1[i], sizeof(double) );//         = Bms118_NP1->Values();
+BMS.read( (char*)&values_Bms119_N[i], sizeof(double) );//           = Bms119_N->Values();
+BMS.read( (char*)&values_Bms119_NP1[i], sizeof(double) );//         = Bms119_NP1->Values();
+BMS.read( (char*)&values_Bms120_N[i], sizeof(double) );//          = Bms120_N->Values();
+BMS.read( (char*)&values_Bms120_NP1[i], sizeof(double) );//        = Bms120_NP1->Values();
+
+BMS.read( (char*)&values_Bms121_N[i], sizeof(double) );//           = Bms121_N->Values();
+BMS.read( (char*)&values_Bms121_NP1[i], sizeof(double) );//         = Bms121_NP1->Values();
+BMS.read( (char*)&values_Bms122_N[i], sizeof(double) );//           = Bms122_N->Values();
+BMS.read( (char*)&values_Bms122_NP1[i], sizeof(double) );//         = Bms122_NP1->Values();
+BMS.read( (char*)&values_Bms123_N[i], sizeof(double) );//           = Bms123_N->Values();
+BMS.read( (char*)&values_Bms123_NP1[i], sizeof(double) );//         = Bms123_NP1->Values();
+BMS.read( (char*)&values_Bms124_N[i], sizeof(double) );//           = Bms124_N->Values();
+BMS.read( (char*)&values_Bms124_NP1[i], sizeof(double) );//         = Bms124_NP1->Values();
+BMS.read( (char*)&values_Bms125_N[i], sizeof(double) );//           = Bms125_N->Values();
+BMS.read( (char*)&values_Bms125_NP1[i], sizeof(double) );//         = Bms125_NP1->Values();
+BMS.read( (char*)&values_Bms126_N[i], sizeof(double) );//           = Bms126_N->Values();
+BMS.read( (char*)&values_Bms126_NP1[i], sizeof(double) );//         = Bms126_NP1->Values();
+BMS.read( (char*)&values_Bms127_N[i], sizeof(double) );//           = Bms127_N->Values();
+BMS.read( (char*)&values_Bms127_NP1[i], sizeof(double) );//         = Bms127_NP1->Values();
+BMS.read( (char*)&values_Bms128_N[i], sizeof(double) );//           = Bms128_N->Values();
+BMS.read( (char*)&values_Bms128_NP1[i], sizeof(double) );//         = Bms128_NP1->Values();
+BMS.read( (char*)&values_Bms129_N[i], sizeof(double) );//           = Bms129_N->Values();
+BMS.read( (char*)&values_Bms129_NP1[i], sizeof(double) );//         = Bms129_NP1->Values();
+BMS.read( (char*)&values_Bms130_N[i], sizeof(double) );//          = Bms130_N->Values();
+BMS.read( (char*)&values_Bms130_NP1[i], sizeof(double) );//        = Bms130_NP1->Values();
+
+BMS.read( (char*)&values_Bms131_N[i], sizeof(double) );//           = Bms131_N->Values();
+BMS.read( (char*)&values_Bms131_NP1[i], sizeof(double) );//         = Bms131_NP1->Values();
+BMS.read( (char*)&values_Bms132_N[i], sizeof(double) );//           = Bms132_N->Values();
+BMS.read( (char*)&values_Bms132_NP1[i], sizeof(double) );//         = Bms132_NP1->Values();
+BMS.read( (char*)&values_Bms133_N[i], sizeof(double) );//           = Bms133_N->Values();
+BMS.read( (char*)&values_Bms133_NP1[i], sizeof(double) );//         = Bms133_NP1->Values();
+BMS.read( (char*)&values_Bms134_N[i], sizeof(double) );//           = Bms134_N->Values();
+BMS.read( (char*)&values_Bms134_NP1[i], sizeof(double) );//         = Bms134_NP1->Values();
+BMS.read( (char*)&values_Bms135_N[i], sizeof(double) );//           = Bms135_N->Values();
+BMS.read( (char*)&values_Bms135_NP1[i], sizeof(double) );//         = Bms135_NP1->Values();
+BMS.read( (char*)&values_Bms136_N[i], sizeof(double) );//           = Bms136_N->Values();
+BMS.read( (char*)&values_Bms136_NP1[i], sizeof(double) );//         = Bms136_NP1->Values();
+BMS.read( (char*)&values_Bms137_N[i], sizeof(double) );//           = Bms137_N->Values();
+BMS.read( (char*)&values_Bms137_NP1[i], sizeof(double) );//         = Bms137_NP1->Values();
+BMS.read( (char*)&values_Bms138_N[i], sizeof(double) );//           = Bms138_N->Values();
+BMS.read( (char*)&values_Bms138_NP1[i], sizeof(double) );//         = Bms138_NP1->Values();
+BMS.read( (char*)&values_Bms139_N[i], sizeof(double) );//           = Bms139_N->Values();
+BMS.read( (char*)&values_Bms139_NP1[i], sizeof(double) );//         = Bms139_NP1->Values();
+BMS.read( (char*)&values_Bms140_N[i], sizeof(double) );//          = Bms140_N->Values();
+BMS.read( (char*)&values_Bms140_NP1[i], sizeof(double) );//        = Bms140_NP1->Values();
+
+BMS.read( (char*)&values_Bms141_N[i], sizeof(double) );//           = Bms141_N->Values();
+BMS.read( (char*)&values_Bms141_NP1[i], sizeof(double) );//         = Bms141_NP1->Values();
+BMS.read( (char*)&values_Bms142_N[i], sizeof(double) );//           = Bms142_N->Values();
+BMS.read( (char*)&values_Bms142_NP1[i], sizeof(double) );//         = Bms142_NP1->Values();
+BMS.read( (char*)&values_Bms143_N[i], sizeof(double) );//           = Bms143_N->Values();
+BMS.read( (char*)&values_Bms143_NP1[i], sizeof(double) );//         = Bms143_NP1->Values();
+BMS.read( (char*)&values_Bms144_N[i], sizeof(double) );//           = Bms144_N->Values();
+BMS.read( (char*)&values_Bms144_NP1[i], sizeof(double) );//         = Bms144_NP1->Values();
+BMS.read( (char*)&values_Bms145_N[i], sizeof(double) );//           = Bms145_N->Values();
+BMS.read( (char*)&values_Bms145_NP1[i], sizeof(double) );//         = Bms145_NP1->Values();
+BMS.read( (char*)&values_Bms146_N[i], sizeof(double) );//           = Bms146_N->Values();
+BMS.read( (char*)&values_Bms146_NP1[i], sizeof(double) );//         = Bms146_NP1->Values();
+BMS.read( (char*)&values_Bms147_N[i], sizeof(double) );//           = Bms147_N->Values();
+BMS.read( (char*)&values_Bms147_NP1[i], sizeof(double) );//         = Bms147_NP1->Values();
+BMS.read( (char*)&values_Bms148_N[i], sizeof(double) );//           = Bms148_N->Values();
+BMS.read( (char*)&values_Bms148_NP1[i], sizeof(double) );//         = Bms148_NP1->Values();
+BMS.read( (char*)&values_Bms149_N[i], sizeof(double) );//           = Bms149_N->Values();
+BMS.read( (char*)&values_Bms149_NP1[i], sizeof(double) );//         = Bms149_NP1->Values();
+BMS.read( (char*)&values_Bms150_N[i], sizeof(double) );//          = Bms150_N->Values();
+BMS.read( (char*)&values_Bms150_NP1[i], sizeof(double) );//        = Bms150_NP1->Values();
+
+BMS.read( (char*)&values_Bms151_N[i], sizeof(double) );//           = Bms151_N->Values();
+BMS.read( (char*)&values_Bms151_NP1[i], sizeof(double) );//         = Bms151_NP1->Values();
+BMS.read( (char*)&values_Bms152_N[i], sizeof(double) );//           = Bms152_N->Values();
+BMS.read( (char*)&values_Bms152_NP1[i], sizeof(double) );//         = Bms152_NP1->Values();
+BMS.read( (char*)&values_Bms153_N[i], sizeof(double) );//           = Bms153_N->Values();
+BMS.read( (char*)&values_Bms153_NP1[i], sizeof(double) );//         = Bms153_NP1->Values();
+BMS.read( (char*)&values_Bms154_N[i], sizeof(double) );//           = Bms154_N->Values();
+BMS.read( (char*)&values_Bms154_NP1[i], sizeof(double) );//         = Bms154_NP1->Values();
+BMS.read( (char*)&values_Bms155_N[i], sizeof(double) );//           = Bms155_N->Values();
+BMS.read( (char*)&values_Bms155_NP1[i], sizeof(double) );//         = Bms155_NP1->Values();
+BMS.read( (char*)&values_Bms156_N[i], sizeof(double) );//           = Bms156_N->Values();
+BMS.read( (char*)&values_Bms156_NP1[i], sizeof(double) );//         = Bms156_NP1->Values();
+BMS.read( (char*)&values_Bms157_N[i], sizeof(double) );//           = Bms157_N->Values();
+BMS.read( (char*)&values_Bms157_NP1[i], sizeof(double) );//         = Bms157_NP1->Values();
+BMS.read( (char*)&values_Bms158_N[i], sizeof(double) );//           = Bms158_N->Values();
+BMS.read( (char*)&values_Bms158_NP1[i], sizeof(double) );//         = Bms158_NP1->Values();
+BMS.read( (char*)&values_Bms159_N[i], sizeof(double) );//           = Bms159_N->Values();
+BMS.read( (char*)&values_Bms159_NP1[i], sizeof(double) );//         = Bms159_NP1->Values();
+BMS.read( (char*)&values_Bms160_N[i], sizeof(double) );//           = Bms160_N->Values();
+BMS.read( (char*)&values_Bms160_NP1[i], sizeof(double) );//         = Bms160_NP1->Values();
+
+BMS.read( (char*)&values_Bms161_N[i], sizeof(double) );//           = Bms161_N->Values();
+BMS.read( (char*)&values_Bms161_NP1[i], sizeof(double) );//         = Bms161_NP1->Values();
+BMS.read( (char*)&values_Bms162_N[i], sizeof(double) );//           = Bms162_N->Values();
+BMS.read( (char*)&values_Bms162_NP1[i], sizeof(double) );//         = Bms162_NP1->Values();
+BMS.read( (char*)&values_Bms163_N[i], sizeof(double) );//           = Bms163_N->Values();
+BMS.read( (char*)&values_Bms163_NP1[i], sizeof(double) );//         = Bms163_NP1->Values();
+BMS.read( (char*)&values_Bms164_N[i], sizeof(double) );//           = Bms164_N->Values();
+BMS.read( (char*)&values_Bms164_NP1[i], sizeof(double) );//         = Bms164_NP1->Values();
+BMS.read( (char*)&values_Bms165_N[i], sizeof(double) );//           = Bms165_N->Values();
+BMS.read( (char*)&values_Bms165_NP1[i], sizeof(double) );//         = Bms165_NP1->Values();
+BMS.read( (char*)&values_Bms166_N[i], sizeof(double) );//           = Bms166_N->Values();
+BMS.read( (char*)&values_Bms166_NP1[i], sizeof(double) );//         = Bms166_NP1->Values();
+BMS.read( (char*)&values_Bms167_N[i], sizeof(double) );//           = Bms167_N->Values();
+BMS.read( (char*)&values_Bms167_NP1[i], sizeof(double) );//         = Bms167_NP1->Values();
+BMS.read( (char*)&values_Bms168_N[i], sizeof(double) );//           = Bms168_N->Values();
+BMS.read( (char*)&values_Bms168_NP1[i], sizeof(double) );//         = Bms168_NP1->Values();
+BMS.read( (char*)&values_Bms169_N[i], sizeof(double) );//           = Bms169_N->Values();
+BMS.read( (char*)&values_Bms169_NP1[i], sizeof(double) );//         = Bms169_NP1->Values();
+BMS.read( (char*)&values_Bms170_N[i], sizeof(double) );//           = Bms170_N->Values();
+BMS.read( (char*)&values_Bms170_NP1[i], sizeof(double) );//         = Bms170_NP1->Values();
+
+BMS.read( (char*)&values_Bms171_N[i], sizeof(double) );//           = Bms171_N->Values();
+BMS.read( (char*)&values_Bms171_NP1[i], sizeof(double) );//         = Bms171_NP1->Values();
+BMS.read( (char*)&values_Bms172_N[i], sizeof(double) );//           = Bms172_N->Values();
+BMS.read( (char*)&values_Bms172_NP1[i], sizeof(double) );//         = Bms172_NP1->Values();
+BMS.read( (char*)&values_Bms173_N[i], sizeof(double) );//           = Bms173_N->Values();
+BMS.read( (char*)&values_Bms173_NP1[i], sizeof(double) );//         = Bms173_NP1->Values();
+BMS.read( (char*)&values_Bms174_N[i], sizeof(double) );//           = Bms174_N->Values();
+BMS.read( (char*)&values_Bms174_NP1[i], sizeof(double) );//         = Bms174_NP1->Values();
+BMS.read( (char*)&values_Bms175_N[i], sizeof(double) );//           = Bms175_N->Values();
+BMS.read( (char*)&values_Bms175_NP1[i], sizeof(double) );//         = Bms175_NP1->Values();
+BMS.read( (char*)&values_Bms176_N[i], sizeof(double) );//           = Bms176_N->Values();
+BMS.read( (char*)&values_Bms176_NP1[i], sizeof(double) );//         = Bms176_NP1->Values();
+BMS.read( (char*)&values_Bms177_N[i], sizeof(double) );//           = Bms177_N->Values();
+BMS.read( (char*)&values_Bms177_NP1[i], sizeof(double) );//         = Bms177_NP1->Values();
+BMS.read( (char*)&values_Bms178_N[i], sizeof(double) );//           = Bms178_N->Values();
+BMS.read( (char*)&values_Bms178_NP1[i], sizeof(double) );//         = Bms178_NP1->Values();
+BMS.read( (char*)&values_Bms179_N[i], sizeof(double) );//           = Bms179_N->Values();
+BMS.read( (char*)&values_Bms179_NP1[i], sizeof(double) );//         = Bms179_NP1->Values();
+BMS.read( (char*)&values_Bms180_N[i], sizeof(double) );//           = Bms180_N->Values();
+BMS.read( (char*)&values_Bms180_NP1[i], sizeof(double) );//         = Bms180_NP1->Values();
+
+BMS.read( (char*)&values_Bms181_N[i], sizeof(double) );//           = Bms181_N->Values();
+BMS.read( (char*)&values_Bms181_NP1[i], sizeof(double) );//         = Bms181_NP1->Values();
+BMS.read( (char*)&values_Bms182_N[i], sizeof(double) );//           = Bms182_N->Values();
+BMS.read( (char*)&values_Bms182_NP1[i], sizeof(double) );//         = Bms182_NP1->Values();
+BMS.read( (char*)&values_Bms183_N[i], sizeof(double) );//           = Bms183_N->Values();
+BMS.read( (char*)&values_Bms183_NP1[i], sizeof(double) );//         = Bms183_NP1->Values();
+BMS.read( (char*)&values_Bms184_N[i], sizeof(double) );//           = Bms184_N->Values();
+BMS.read( (char*)&values_Bms184_NP1[i], sizeof(double) );//         = Bms184_NP1->Values();
+BMS.read( (char*)&values_Bms185_N[i], sizeof(double) );//           = Bms185_N->Values();
+BMS.read( (char*)&values_Bms185_NP1[i], sizeof(double) );//         = Bms185_NP1->Values();
+BMS.read( (char*)&values_Bms186_N[i], sizeof(double) );//           = Bms186_N->Values();
+BMS.read( (char*)&values_Bms186_NP1[i], sizeof(double) );//         = Bms186_NP1->Values();
+BMS.read( (char*)&values_Bms187_N[i], sizeof(double) );//           = Bms187_N->Values();
+BMS.read( (char*)&values_Bms187_NP1[i], sizeof(double) );//         = Bms187_NP1->Values();
+BMS.read( (char*)&values_Bms188_N[i], sizeof(double) );//           = Bms188_N->Values();
+BMS.read( (char*)&values_Bms188_NP1[i], sizeof(double) );//         = Bms188_NP1->Values();
+BMS.read( (char*)&values_Bms189_N[i], sizeof(double) );//           = Bms189_N->Values();
+BMS.read( (char*)&values_Bms189_NP1[i], sizeof(double) );//         = Bms189_NP1->Values();
+
+/////// Bond Level Microdamage //////////////////
+BMD.read( (char*)&values_Bmd1_N[i], sizeof(double) );//           = Bmd1_N->Values();
+BMD.read( (char*)&values_Bmd1_NP1[i], sizeof(double) );//         = Bmd1_NP1->Values();
+BMD.read( (char*)&values_Bmd2_N[i], sizeof(double) );//           = Bmd2_N->Values();
+BMD.read( (char*)&values_Bmd2_NP1[i], sizeof(double) );//         = Bmd2_NP1->Values();
+BMD.read( (char*)&values_Bmd3_N[i], sizeof(double) );//           = Bmd3_N->Values();
+BMD.read( (char*)&values_Bmd3_NP1[i], sizeof(double) );//         = Bmd3_NP1->Values();
+BMD.read( (char*)&values_Bmd4_N[i], sizeof(double) );//           = Bmd4_N->Values();
+BMD.read( (char*)&values_Bmd4_NP1[i], sizeof(double) );//         = Bmd4_NP1->Values();
+BMD.read( (char*)&values_Bmd5_N[i], sizeof(double) );//           = Bmd5_N->Values();
+BMD.read( (char*)&values_Bmd5_NP1[i], sizeof(double) );//         = Bmd5_NP1->Values();
+BMD.read( (char*)&values_Bmd6_N[i], sizeof(double) );//           = Bmd6_N->Values();
+BMD.read( (char*)&values_Bmd6_NP1[i], sizeof(double) );//         = Bmd6_NP1->Values();
+BMD.read( (char*)&values_Bmd7_N[i], sizeof(double) );//           = Bmd7_N->Values();
+BMD.read( (char*)&values_Bmd7_NP1[i], sizeof(double) );//         = Bmd7_NP1->Values();
+BMD.read( (char*)&values_Bmd8_N[i], sizeof(double) );//           = Bmd8_N->Values();
+BMD.read( (char*)&values_Bmd8_NP1[i], sizeof(double) );//         = Bmd8_NP1->Values();
+BMD.read( (char*)&values_Bmd9_N[i], sizeof(double) );//           = Bmd9_N->Values();
+BMD.read( (char*)&values_Bmd9_NP1[i], sizeof(double) );//         = Bmd9_NP1->Values();
+BMD.read( (char*)&values_Bmd10_N[i], sizeof(double) );//          = Bmd10_N->Values();
+BMD.read( (char*)&values_Bmd10_NP1[i], sizeof(double) );//        = Bmd10_NP1->Values();
+
+BMD.read( (char*)&values_Bmd11_N[i], sizeof(double) );//           = Bmd11_N->Values();
+BMD.read( (char*)&values_Bmd11_NP1[i], sizeof(double) );//         = Bmd11_NP1->Values();
+BMD.read( (char*)&values_Bmd12_N[i], sizeof(double) );//           = Bmd12_N->Values();
+BMD.read( (char*)&values_Bmd12_NP1[i], sizeof(double) );//         = Bmd12_NP1->Values();
+BMD.read( (char*)&values_Bmd13_N[i], sizeof(double) );//           = Bmd13_N->Values();
+BMD.read( (char*)&values_Bmd13_NP1[i], sizeof(double) );//         = Bmd13_NP1->Values();
+BMD.read( (char*)&values_Bmd14_N[i], sizeof(double) );//           = Bmd14_N->Values();
+BMD.read( (char*)&values_Bmd14_NP1[i], sizeof(double) );//         = Bmd14_NP1->Values();
+BMD.read( (char*)&values_Bmd15_N[i], sizeof(double) );//           = Bmd15_N->Values();
+BMD.read( (char*)&values_Bmd15_NP1[i], sizeof(double) );//         = Bmd15_NP1->Values();
+BMD.read( (char*)&values_Bmd16_N[i], sizeof(double) );//           = Bmd16_N->Values();
+BMD.read( (char*)&values_Bmd16_NP1[i], sizeof(double) );//         = Bmd16_NP1->Values();
+BMD.read( (char*)&values_Bmd17_N[i], sizeof(double) );//           = Bmd17_N->Values();
+BMD.read( (char*)&values_Bmd17_NP1[i], sizeof(double) );//         = Bmd17_NP1->Values();
+BMD.read( (char*)&values_Bmd18_N[i], sizeof(double) );//           = Bmd18_N->Values();
+BMD.read( (char*)&values_Bmd18_NP1[i], sizeof(double) );//         = Bmd18_NP1->Values();
+BMD.read( (char*)&values_Bmd19_N[i], sizeof(double) );//           = Bmd19_N->Values();
+BMD.read( (char*)&values_Bmd19_NP1[i], sizeof(double) );//         = Bmd19_NP1->Values();
+BMD.read( (char*)&values_Bmd20_N[i], sizeof(double) );//           = Bmd20_N->Values();
+BMD.read( (char*)&values_Bmd20_NP1[i], sizeof(double) );//         = Bmd20_NP1->Values();
+
+BMD.read( (char*)&values_Bmd21_N[i], sizeof(double) );//           = Bmd21_N->Values();
+BMD.read( (char*)&values_Bmd21_NP1[i], sizeof(double) );//         = Bmd21_NP1->Values();
+BMD.read( (char*)&values_Bmd22_N[i], sizeof(double) );//           = Bmd22_N->Values();
+BMD.read( (char*)&values_Bmd22_NP1[i], sizeof(double) );//         = Bmd22_NP1->Values();
+BMD.read( (char*)&values_Bmd23_N[i], sizeof(double) );//           = Bmd23_N->Values();
+BMD.read( (char*)&values_Bmd23_NP1[i], sizeof(double) );//         = Bmd23_NP1->Values();
+BMD.read( (char*)&values_Bmd24_N[i], sizeof(double) );//           = Bmd24_N->Values();
+BMD.read( (char*)&values_Bmd24_NP1[i], sizeof(double) );//         = Bmd24_NP1->Values();
+BMD.read( (char*)&values_Bmd25_N[i], sizeof(double) );//           = Bmd25_N->Values();
+BMD.read( (char*)&values_Bmd25_NP1[i], sizeof(double) );//         = Bmd25_NP1->Values();
+BMD.read( (char*)&values_Bmd26_N[i], sizeof(double) );//           = Bmd26_N->Values();
+BMD.read( (char*)&values_Bmd26_NP1[i], sizeof(double) );//         = Bmd26_NP1->Values();
+BMD.read( (char*)&values_Bmd27_N[i], sizeof(double) );//           = Bmd27_N->Values();
+BMD.read( (char*)&values_Bmd27_NP1[i], sizeof(double) );//         = Bmd27_NP1->Values();
+BMD.read( (char*)&values_Bmd28_N[i], sizeof(double) );//           = Bmd28_N->Values();
+BMD.read( (char*)&values_Bmd28_NP1[i], sizeof(double) );//         = Bmd28_NP1->Values();
+BMD.read( (char*)&values_Bmd29_N[i], sizeof(double) );//           = Bmd29_N->Values();
+BMD.read( (char*)&values_Bmd29_NP1[i], sizeof(double) );//         = Bmd29_NP1->Values();
+BMD.read( (char*)&values_Bmd30_N[i], sizeof(double) );//          = Bmd30_N->Values();
+BMD.read( (char*)&values_Bmd30_NP1[i], sizeof(double) );//        = Bmd30_NP1->Values();
+
+BMD.read( (char*)&values_Bmd31_N[i], sizeof(double) );//           = Bmd31_N->Values();
+BMD.read( (char*)&values_Bmd31_NP1[i], sizeof(double) );//         = Bmd31_NP1->Values();
+BMD.read( (char*)&values_Bmd32_N[i], sizeof(double) );//           = Bmd32_N->Values();
+BMD.read( (char*)&values_Bmd32_NP1[i], sizeof(double) );//         = Bmd32_NP1->Values();
+BMD.read( (char*)&values_Bmd33_N[i], sizeof(double) );//           = Bmd33_N->Values();
+BMD.read( (char*)&values_Bmd33_NP1[i], sizeof(double) );//         = Bmd33_NP1->Values();
+BMD.read( (char*)&values_Bmd34_N[i], sizeof(double) );//           = Bmd34_N->Values();
+BMD.read( (char*)&values_Bmd34_NP1[i], sizeof(double) );//         = Bmd34_NP1->Values();
+BMD.read( (char*)&values_Bmd35_N[i], sizeof(double) );//           = Bmd35_N->Values();
+BMD.read( (char*)&values_Bmd35_NP1[i], sizeof(double) );//         = Bmd35_NP1->Values();
+BMD.read( (char*)&values_Bmd36_N[i], sizeof(double) );//           = Bmd36_N->Values();
+BMD.read( (char*)&values_Bmd36_NP1[i], sizeof(double) );//         = Bmd36_NP1->Values();
+BMD.read( (char*)&values_Bmd37_N[i], sizeof(double) );//           = Bmd37_N->Values();
+BMD.read( (char*)&values_Bmd37_NP1[i], sizeof(double) );//         = Bmd37_NP1->Values();
+
+IE.read( (char*)&values_weightedDamage[i], sizeof(double) );//       = weightedDamage->Values();
+IE.read( (char*)&values_internalEnergy_N[i], sizeof(double) );//    = internalEnergy_N->Values();
+IE.read( (char*)&values_internalEnergy_NP1[i], sizeof(double) );//  = internalEnergy_NP1->Values();
+IE.read( (char*)&values_inelasticEnergy_N[i], sizeof(double) );//   = inelasticEnergy_N->Values();
+IE.read( (char*)&values_inelasticEnergy_NP1[i], sizeof(double) );// = inelasticEnergy_NP1->Values();
+IE.read( (char*)&values_BinternalEnergy_N[i], sizeof(double) );//   = bondLevelinternalEnergy_N->Values();
+IE.read( (char*)&values_BinternalEnergy_NP1[i], sizeof(double) );// = bondLevelinternalEnergy_NP1->Values();
+IE.read( (char*)&values_BinelasticEnergy_N[i], sizeof(double) );//  = bondLevelInelasticEnergy_N->Values();
+IE.read( (char*)&values_BinelasticEnergy_NP1[i], sizeof(double) );// = bondLevelInelasticEnergy_NP1->Values();
+IE.read( (char*)&values_BweightedDamage[i], sizeof(double) );// = bondLevelInelasticEnergy_NP1->Values();
+
+
+}
+
+
+MS.close();
+MD.close();
+BMS.close();
+BMD.close();
+IE.close();
+
 
 PetscFunctionReturn(ierr);
 }
@@ -1898,6 +10185,13 @@ PetscErrorCode ReadLastResults(PARAMETERS *par,Vec U,Vec V,PetscInt StepRestart,
     ifstream DefGrad;
     DefGrad.open(fname, ios::in | ios::binary);
 
+    // force state
+    ostringstream convert14;
+    convert14 << "RestartForce." << rank << "." << StepRestart << ".dat";
+    fname = convert14.str();
+    ifstream Force;
+    Force.open(fname, ios::in | ios::binary);
+
 
     PetscInt counter; //Number of particles on current rank
     Num.read( (char*)&counter, sizeof(int));
@@ -1972,8 +10266,10 @@ PetscErrorCode ReadLastResults(PARAMETERS *par,Vec U,Vec V,PetscInt StepRestart,
 
      Vol.read( (char*)&fd.nodalVolume, sizeof(double));
      Vol.read( (char*)&fd.nodalVolumeInitial, sizeof(double));
+     Vol.read( (char*)&fd.referenceNodalVolume, sizeof(double));
      Vol.read( (char*)&fd.nodalDensity, sizeof(double));
      Vol.read( (char*)&fd.nodalDensityInitial, sizeof(double));
+     Vol.read( (char*)&fd.referenceDensity, sizeof(double));
      Vol.read( (char*)&fd.penaltyParameter, sizeof(double));
      Vol.read( (char*)& fd.referencePenaltyParameterInternal, sizeof(double));
 
@@ -1983,6 +10279,15 @@ PetscErrorCode ReadLastResults(PARAMETERS *par,Vec U,Vec V,PetscInt StepRestart,
       }
      Bound.read( (char*)&fd.Boundary, sizeof(int));
      Bound.read( (char*)&fd.Inside, sizeof(int));
+
+    for(j = 0 ; j ++ ; j < 3){
+        Force.read( (char*)&fd.inertia[j], sizeof(double));
+        Force.read( (char*)&fd.residual[j], sizeof(double));
+        Force.read( (char*)&fd.internalForce[j], sizeof(double));
+        Force.read( (char*)&fd.bodyForce[j], sizeof(double));
+    }
+
+
 
 		VertexData vd = VertexData(VertexID(rank,rank,&manager.localVertexCounter),info);
 		vd.fd = fd;
@@ -2010,225 +10315,1566 @@ PetscErrorCode ReadLastResults(PARAMETERS *par,Vec U,Vec V,PetscInt StepRestart,
 
 #undef __FUNCT__
 #define __FUNCT__ "ReadPeridigmRestarts"
-PetscErrorCode ReadPeridigmRestarts(PARAMETERS *par, ParticleManager &manager, int StepRestart, Teuchos::RCP<PeridigmNS::Peridigm> peridigm, const int num_PD_nodes_onRank)
+PetscErrorCode ReadPeridigmRestarts(PARAMETERS *par, ParticleManager &manager, int StepRestart, Teuchos::RCP<PeridigmNS::Peridigm> peridigm, int num_PD_nodes_onRank)
 {
   PetscErrorCode ierr;
   PetscFunctionBegin;
   PetscMPIInt rank, size;
   MPI_Comm_size(PETSC_COMM_WORLD, &size);
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
-  int numOwnedPoints;
+
+  ostringstream FILESTREAM;
+  string        FILENAME;
 
   PetscPrintf(PETSC_COMM_WORLD, "Reading Peridigm Restarts in Parallel...\n");
 
-  // Open all Peridigm Restart Files
-  ostringstream FILESTREAM;
-  FILESTREAM << "PeridigmRestarts/RestartForceDensity." << rank << "." << StepRestart << ".dat";
-  string FILENAME = FILESTREAM.str();
-  ifstream FORCE_DENSITY;
-  FORCE_DENSITY.open(FILENAME, ios::in | ios::binary);
+  //Initialize all restart files
+  FILESTREAM << "PeridigmRestarts/RestartBlockIDs." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream BLOCKIDS;
+  BLOCKIDS.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
 
-  FILESTREAM << "PeridigmRestarts/RestartForce." << rank << "." << StepRestart << ".dat";
+  FILESTREAM << "PeridigmRestarts/RestartXUYVAdeltaU." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream XUYVADELTAU;
+  XUYVADELTAU.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartForce." << rank << "." << par->stepNumber << ".dat";
   FILENAME = FILESTREAM.str();
   ifstream FORCE;
   FORCE.open(FILENAME, ios::in | ios::binary);
-
-  FILESTREAM << "PeridigmRestarts/RestartCoord." << rank << "." << par->stepNumber << ".dat";
-  FILENAME = FILESTREAM.str();
-  ifstream COORDINATES;
-  COORDINATES.open(FILENAME, ios::out | ios::binary);
   FILESTREAM.str("");FILESTREAM.clear();
 
-  FILESTREAM << "PeridigmRestarts/RestartDisplacement." << rank << "." << par->stepNumber << ".dat";
+  FILESTREAM << "PeridigmRestarts/RestartCDV." << rank << "." << par->stepNumber << ".dat";
   FILENAME = FILESTREAM.str();
-  ifstream DISPLACEMENT;
-  DISPLACEMENT.open(FILENAME, ios::out | ios::binary);
-  FILESTREAM.str("");FILESTREAM.clear();
-
-  FILESTREAM << "PeridigmRestarts/RestartVelocity." << rank << "." << par->stepNumber << ".dat";
-  FILENAME = FILESTREAM.str();
-  ifstream VELOCITY;
-  VELOCITY.open(FILENAME, ios::out | ios::binary);
-  FILESTREAM.str("");FILESTREAM.clear();
-
-  FILESTREAM << "PeridigmRestarts/RestartAcceleration." << rank << "." << par->stepNumber << ".dat";
-  FILENAME = FILESTREAM.str();
-  ifstream ACCELERATION;
-  ACCELERATION.open(FILENAME, ios::out | ios::binary);
-  FILESTREAM.str("");FILESTREAM.clear();
-
-  FILESTREAM << "PeridigmRestarts/RestartDamage." << rank << "." << par->stepNumber << ".dat";
-  FILENAME = FILESTREAM.str();
-  ifstream DAMAGE;
-  DAMAGE.open(FILENAME, ios::out | ios::binary);
-  FILESTREAM.str("");FILESTREAM.clear();
-
-  FILESTREAM << "PeridigmRestarts/RestartNormal." << rank << "." << par->stepNumber << ".dat";
-  FILENAME = FILESTREAM.str();
-  ifstream NORMAL;
-  NORMAL.open(FILENAME, ios::out | ios::binary);
+  ifstream CDV;
+  CDV.open(FILENAME, ios::in | ios::binary);
   FILESTREAM.str("");FILESTREAM.clear();
 
   FILESTREAM << "PeridigmRestarts/RestartVolume." << rank << "." << par->stepNumber << ".dat";
   FILENAME = FILESTREAM.str();
   ifstream VOLUME;
-  VOLUME.open(FILENAME, ios::out | ios::binary);
+  VOLUME.open(FILENAME, ios::in | ios::binary);
   FILESTREAM.str("");FILESTREAM.clear();
 
   FILESTREAM << "PeridigmRestarts/RestartHorizon." << rank << "." << par->stepNumber << ".dat";
   FILENAME = FILESTREAM.str();
   ifstream HORIZON;
-  HORIZON.open(FILENAME, ios::out | ios::binary);
+  HORIZON.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartDamage." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream DAMAGE;
+  DAMAGE.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartModelCoord." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream MODELCOORD;
+  MODELCOORD.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartForceDensity." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream FORCEDENSITY;
+  FORCEDENSITY.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartBondDamage." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream BONDDAMAGE;
+  BONDDAMAGE.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartInfluenceState." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream INFLUENCESTATE;
+  INFLUENCESTATE.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartWeightedVols." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream WEIGHTEDVOLS;
+  WEIGHTEDVOLS.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartGradWeight." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream GRADWEIGHT;
+  GRADWEIGHT.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartGradWeightFlag." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream GRADWEIGHTFLAG;
+  GRADWEIGHTFLAG.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartDefGrad." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream DEFGRAD;
+  DEFGRAD.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartGLStrain." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream GLSTRAIN;
+  GLSTRAIN.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartPStrain." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream PSTRAIN;
+  PSTRAIN.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartPK2_strainrate." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream SRATE_PK2;
+  SRATE_PK2.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartPiolaStress." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream PIOLASTRESS;
+  PIOLASTRESS.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartStressIntegral." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream STRESSINT;
+  STRESSINT.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartBondLevelStrain_StrainRate_PK2Stress." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream BLEVELSTRAIN_STRAINRATE;
+  BLEVELSTRAIN_STRAINRATE.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+
+  FILESTREAM << "PeridigmRestarts/RestartBondLevelDefGrad." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream BLEVEL_DEFGRAD;
+  BLEVEL_DEFGRAD.open(FILENAME, ios::in | ios::binary);
   FILESTREAM.str("");FILESTREAM.clear();
   ///////////////////////////////
 
-  // Parallelized Peridigm Restart read
-  Teuchos::RCP<Epetra_Vector> force, force_density_N, force_density_NP1, coordinates_N,
+
+  // Declare all RCP vectors available through Get functionality:
+  Teuchos::RCP<Epetra_Vector> blockIDs, volume, deltaTemperature, x, u, y, v, a, force, contactForce, externalForce, deltaU;
+
+  // Quantitites available through Block iterator
+  Teuchos::RCP<Epetra_Vector> coordinates_N,
   coordinates_NP1, displacement_N, displacement_NP1, velocity_N, velocity_NP1,
-  acceleration_N, acceleration_NP1, damage_N, damage_NP1, normal_N, normal_NP1,
-  volume, horizon;
+  acceleration_N, acceleration_NP1, damage_N, damage_NP1, horizon;
+
+  // Quantities from concrete model:
+  Teuchos::RCP<Epetra_Vector> modelCoordinates,
+                              force_density_N,
+                              force_density_NP1,
+                              bondDamage_N,
+                              bondDamage_NP1,
+                              influenceState,
+                              weightedVolume,
+                              gradientWeightX,
+                              gradientWeightY,
+                              gradientWeightZ,
+                              gradientWeightEval,
+                              velocityGradientX,
+                              velocityGradientY,
+                              velocityGradientZ,
+                              velocityGradientDotX,
+                              velocityGradientDotY,
+                              velocityGradientDotZ,
+                              Green_Lagrange_Strain_N,
+                              Green_Lagrange_Strain_NP1,
+                              Principal_Strains,
+                              StrainRate,
+                              PK2_Stress_N,
+                              PK2_Stress_NP1,
+                              Piola_Stress_XX,
+                              Piola_Stress_XY,
+                              Piola_Stress_XZ,
+                              Piola_Stress_YX,
+                              Piola_Stress_YY,
+                              Piola_Stress_YZ,
+                              Piola_Stress_ZX,
+                              Piola_Stress_ZY,
+                              Piola_Stress_ZZ,
+                              Stress_Integral,
+                              Strain_Rate_XX,
+                              Strain_Rate_XY,
+                              Strain_Rate_XZ,
+                              Strain_Rate_YX,
+                              Strain_Rate_YY,
+                              Strain_Rate_YZ,
+                              Strain_Rate_ZX,
+                              Strain_Rate_ZY,
+                              Strain_Rate_ZZ,
+                              Strain_XX_N,
+                              Strain_XX_NP1,
+                              Strain_XY_N,
+                              Strain_XY_NP1,
+                              Strain_XZ_N,
+                              Strain_XZ_NP1,
+                              Strain_YX_N,
+                              Strain_YX_NP1,
+                              Strain_YY_N,
+                              Strain_YY_NP1,
+                              Strain_YZ_N,
+                              Strain_YZ_NP1,
+                              Strain_ZX_N,
+                              Strain_ZX_NP1,
+                              Strain_ZY_N,
+                              Strain_ZY_NP1,
+                              Strain_ZZ_N,
+                              Strain_ZZ_NP1,
+                              PK2_Stress_XX_N,
+                              PK2_Stress_XX_NP1,
+                              PK2_Stress_XY_N,
+                              PK2_Stress_XY_NP1,
+                              PK2_Stress_XZ_N,
+                              PK2_Stress_XZ_NP1,
+                              PK2_Stress_YX_N,
+                              PK2_Stress_YX_NP1,
+                              PK2_Stress_YY_N,
+                              PK2_Stress_YY_NP1,
+                              PK2_Stress_YZ_N,
+                              PK2_Stress_YZ_NP1,
+                              PK2_Stress_ZX_N,
+                              PK2_Stress_ZX_NP1,
+                              PK2_Stress_ZY_N,
+                              PK2_Stress_ZY_NP1,
+                              PK2_Stress_ZZ_N,
+                              PK2_Stress_ZZ_NP1,
+                              Deformation_Gradient_XX,
+                              Deformation_Gradient_XY,
+                              Deformation_Gradient_XZ,
+                              Deformation_Gradient_YX,
+                              Deformation_Gradient_YY,
+                              Deformation_Gradient_YZ,
+                              Deformation_Gradient_ZX,
+                              Deformation_Gradient_ZY,
+                              Deformation_Gradient_ZZ;
+
+
 
   int GID[num_PD_nodes_onRank];
 
+  // Block iterator loop
   Teuchos::RCP< std::vector<PeridigmNS::Block> > blocks = peridigm->getBlocks();
   for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
     std::string blockName = blockIt->getName();
-    numOwnedPoints = blockIt->getNeighborhoodData()->NumOwnedPoints();
     Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
 
-    int m_forceDensityFieldId              = fieldManager->getFieldId("Force_Density");
-    int horizonFieldId                     = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Horizon");
-    int m_volumeFieldId                    = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Volume");
-    int coordinatesFieldId                 = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Coordinates");
-    int displacementFieldId                = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Displacement");
-    int velocityFieldId                    = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Velocity");
-    int accelerationFieldId                = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Acceleration");
-    int m_damageFieldId                    = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Damage");
-    int m_normalVectorFieldId              = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Normal_Vector");
 
-    force_density_N   = blockIt->getData(m_forceDensityFieldId, PeridigmField::STEP_N);
-    force_density_NP1 = blockIt->getData(m_forceDensityFieldId, PeridigmField::STEP_NP1);
-    coordinates_N     = blockIt->getData(coordinatesFieldId   , PeridigmField::STEP_N);
-    coordinates_NP1   = blockIt->getData(coordinatesFieldId   , PeridigmField::STEP_NP1);
-    displacement_N    = blockIt->getData(displacementFieldId  , PeridigmField::STEP_N);
-    displacement_NP1  = blockIt->getData(displacementFieldId  , PeridigmField::STEP_NP1);
-    velocity_N        = blockIt->getData(velocityFieldId      , PeridigmField::STEP_N);
-    velocity_NP1      = blockIt->getData(velocityFieldId      , PeridigmField::STEP_NP1);
-    // acceleration_N    = blockIt->getData(accelerationFieldId  , PeridigmField::STEP_N);
-    // acceleration_NP1  = blockIt->getData(accelerationFieldId  , PeridigmField::STEP_NP1);
-    damage_N          = blockIt->getData(m_damageFieldId      , PeridigmField::STEP_N);
-    damage_NP1        = blockIt->getData(m_damageFieldId      , PeridigmField::STEP_NP1);
-    normal_N          = blockIt->getData(m_normalVectorFieldId, PeridigmField::STEP_N);
-    normal_NP1        = blockIt->getData(m_normalVectorFieldId, PeridigmField::STEP_NP1);
-    horizon           = blockIt->getData(horizonFieldId       , PeridigmField::STEP_NONE);
-    volume            = blockIt->getData(m_volumeFieldId      , PeridigmField::STEP_NONE);
+   //Obtain block quantities explicitly to store in RestartFiles; The only thing that
+   //the Peridigm Restart writer will write is the current time. All other information will be initialized to
+   // zero and then we assemble quantities from our restart files
 
-    // Instead of extractview, use this function so that the values cannot be altered in write
-    double *force_density_N_values;
-    double *force_density_NP1_values;
-    force_density_N->ExtractView(&force_density_N_values);
-    force_density_NP1->ExtractView(&force_density_NP1_values);
+   // When we read these back into peridigm, use ExtractView(&data) = values... To restart Model
 
-    double *coordinates_N_values;
-    double *coordinates_NP1_values;
-    coordinates_N->ExtractView(&coordinates_N_values);
-    coordinates_NP1->ExtractView(&coordinates_NP1_values);
+   int horizonFieldId                     = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Horizon");
+   int m_volumeFieldId                    = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Volume");
+   int coordinatesFieldId                 = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Coordinates");
+   int displacementFieldId                = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Displacement");
+   int velocityFieldId                    = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Velocity");
+   int m_damageFieldId                    = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Damage");
 
-    double *displacement_N_values;
-    double *displacement_NP1_values;
-    displacement_N->ExtractView(&displacement_N_values);
-    displacement_NP1->ExtractView(&displacement_NP1_values);
+   // From the Concrete Model:
+   int m_modelCoordinatesFieldId                      = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::CONSTANT, "Model_Coordinates");
+   int m_forceDensityFieldId                          = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Force_Density");
+   int m_bondDamageFieldId                            = fieldManager->getFieldId(PeridigmField::BOND,    PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Damage");
+   int m_influenceStateFieldId                        = fieldManager->getFieldId(PeridigmField::BOND,    PeridigmField::SCALAR, PeridigmField::CONSTANT, "Influence_State");
+   int m_weightedVolumeFieldId                        = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Weighted_Volume");
+   int m_gradientWeightXFieldId                       = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Gradient_Weight_X");
+   int m_gradientWeightYFieldId                       = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Gradient_Weight_Y");
+   int m_gradientWeightZFieldId                       = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Gradient_Weight_Z");
+   int m_gradientWeightEvaluationFlagFieldId          = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Gradient_Weight_Evaluation_Flag");
+   int m_deformationGradientXFieldId                  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_X");
+   int m_deformationGradientYFieldId                  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_Y");
+   int m_deformationGradientZFieldId                  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_Z");
+   int m_deformationGradientDotXFieldId               = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_Dot_X");
+   int m_deformationGradientDotYFieldId               = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_Dot_Y");
+   int m_deformationGradientDotZFieldId               = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_Dot_Z");
+   int m_greenLagrangeStrainFieldId                   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::FULL_TENSOR, PeridigmField::TWO_STEP, "Green_Lagrange_Strain");
+   int m_principalStrainsFieldId                      = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Principal_Strains");
+   int m_strainRateFieldId                            = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::FULL_TENSOR, PeridigmField::CONSTANT, "Strain_Rate");
+   int m_PK2StressFieldId                             = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::FULL_TENSOR, PeridigmField::TWO_STEP, "PK2_Stress");
+   int m_bondLevelPiolaStressXXFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_XX");
+   int m_bondLevelPiolaStressXYFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_XY");
+   int m_bondLevelPiolaStressXZFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_XZ");
+   int m_bondLevelPiolaStressYXFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_YX");
+   int m_bondLevelPiolaStressYYFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_YY");
+   int m_bondLevelPiolaStressYZFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_YZ");
+   int m_bondLevelPiolaStressZXFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_ZX");
+   int m_bondLevelPiolaStressZYFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_ZY");
+   int m_bondLevelPiolaStressZZFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_ZZ");
+   int m_stressIntegralFieldId                        = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::FULL_TENSOR, PeridigmField::CONSTANT, "Stress_Integral");
+   int m_bondLevelStrainRateXXFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_XX");
+   int m_bondLevelStrainRateXYFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_XY");
+   int m_bondLevelStrainRateXZFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_XZ");
+   int m_bondLevelStrainRateYXFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_YX");
+   int m_bondLevelStrainRateYYFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_YY");
+   int m_bondLevelStrainRateYZFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_YZ");
+   int m_bondLevelStrainRateZXFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_ZX");
+   int m_bondLevelStrainRateZYFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_ZY");
+   int m_bondLevelStrainRateZZFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_ZZ");
+   int m_bondLevelStrainXXFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_XX");
+   int m_bondLevelStrainXYFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_XY");
+   int m_bondLevelStrainXZFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_XZ");
+   int m_bondLevelStrainYXFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_YX");
+   int m_bondLevelStrainYYFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_YY");
+   int m_bondLevelStrainYZFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_YZ");
+   int m_bondLevelStrainZXFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_ZX");
+   int m_bondLevelStrainZYFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_ZY");
+   int m_bondLevelStrainZZFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_ZZ");
+   int m_bondLevelPK2StressXXFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_XX");
+   int m_bondLevelPK2StressXYFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_XY");
+   int m_bondLevelPK2StressXZFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_XZ");
+   int m_bondLevelPK2StressYXFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_YX");
+   int m_bondLevelPK2StressYYFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_YY");
+   int m_bondLevelPK2StressYZFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_YZ");
+   int m_bondLevelPK2StressZXFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_ZX");
+   int m_bondLevelPK2StressZYFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_ZY");
+   int m_bondLevelPK2StressZZFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_ZZ");
+   int m_bondLevelDeformationGradientXXFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_XX");
+   int m_bondLevelDeformationGradientXYFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_XY");
+   int m_bondLevelDeformationGradientXZFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_XZ");
+   int m_bondLevelDeformationGradientYXFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_YX");
+   int m_bondLevelDeformationGradientYYFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_YY");
+   int m_bondLevelDeformationGradientYZFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_YZ");
+   int m_bondLevelDeformationGradientZXFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_ZX");
+   int m_bondLevelDeformationGradientZYFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_ZY");
+   int m_bondLevelDeformationGradientZZFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_ZZ");
 
-    double *velocity_N_values;
-    double *velocity_NP1_values;
-    velocity_N->ExtractView(&velocity_N_values);
-    velocity_NP1->ExtractView(&velocity_NP1_values);
 
-    // double *acceleration_N_values;
-    // double *acceleration_NP1_values;
-    // acceleration_N->ExtractView(&acceleration_N_values);
-    // acceleration_NP1->ExtractView(&acceleration_NP1_values);
+   coordinates_N     = blockIt->getData(coordinatesFieldId   , PeridigmField::STEP_N);
+   coordinates_NP1   = blockIt->getData(coordinatesFieldId   , PeridigmField::STEP_NP1);
+   displacement_N    = blockIt->getData(displacementFieldId  , PeridigmField::STEP_N);
+   displacement_NP1  = blockIt->getData(displacementFieldId  , PeridigmField::STEP_NP1);
+   velocity_N        = blockIt->getData(velocityFieldId      , PeridigmField::STEP_N);
+   velocity_NP1      = blockIt->getData(velocityFieldId      , PeridigmField::STEP_NP1);
+   damage_N          = blockIt->getData(m_damageFieldId      , PeridigmField::STEP_N);
+   damage_NP1        = blockIt->getData(m_damageFieldId      , PeridigmField::STEP_NP1);
+   horizon           = blockIt->getData(horizonFieldId       , PeridigmField::STEP_NONE);
 
-    double *damage_N_values;
-    double *damage_NP1_values;
-    damage_N->ExtractView(&damage_N_values);
-    damage_NP1->ExtractView(&damage_NP1_values);
+   // From the concrete model:
+    modelCoordinates          = blockIt->getData( m_modelCoordinatesFieldId                , PeridigmField::STEP_NONE);
+    force_density_N           = blockIt->getData( m_forceDensityFieldId                    , PeridigmField::STEP_N);
+    force_density_NP1         = blockIt->getData( m_forceDensityFieldId                    , PeridigmField::STEP_NP1);
+    bondDamage_N              = blockIt->getData( m_bondDamageFieldId                      , PeridigmField::STEP_N);
+    bondDamage_NP1            = blockIt->getData( m_bondDamageFieldId                      , PeridigmField::STEP_NP1);
+    influenceState            = blockIt->getData( m_influenceStateFieldId                  , PeridigmField::STEP_NONE);
+    weightedVolume            = blockIt->getData( m_weightedVolumeFieldId                  , PeridigmField::STEP_NONE);
+    gradientWeightX           = blockIt->getData( m_gradientWeightXFieldId                 , PeridigmField::STEP_NONE);
+    gradientWeightY           = blockIt->getData( m_gradientWeightYFieldId                 , PeridigmField::STEP_NONE);
+    gradientWeightZ           = blockIt->getData( m_gradientWeightZFieldId                 , PeridigmField::STEP_NONE);
+    gradientWeightEval        = blockIt->getData( m_gradientWeightEvaluationFlagFieldId    , PeridigmField::STEP_NONE);
+    velocityGradientX         = blockIt->getData( m_deformationGradientXFieldId            , PeridigmField::STEP_NONE);
+    velocityGradientY         = blockIt->getData( m_deformationGradientYFieldId            , PeridigmField::STEP_NONE);
+    velocityGradientZ         = blockIt->getData( m_deformationGradientZFieldId            , PeridigmField::STEP_NONE);
+    velocityGradientDotX      = blockIt->getData( m_deformationGradientDotXFieldId         , PeridigmField::STEP_NONE);
+    velocityGradientDotY      = blockIt->getData( m_deformationGradientDotYFieldId         , PeridigmField::STEP_NONE);
+    velocityGradientDotZ      = blockIt->getData( m_deformationGradientDotZFieldId         , PeridigmField::STEP_NONE);
+    Green_Lagrange_Strain_N   = blockIt->getData( m_greenLagrangeStrainFieldId             , PeridigmField::STEP_N);
+    Green_Lagrange_Strain_NP1 = blockIt->getData( m_greenLagrangeStrainFieldId             , PeridigmField::STEP_NP1);
+    Principal_Strains         = blockIt->getData( m_principalStrainsFieldId                , PeridigmField::STEP_NONE);
+    StrainRate                = blockIt->getData( m_strainRateFieldId                      , PeridigmField::STEP_NONE);
+    PK2_Stress_N              = blockIt->getData( m_PK2StressFieldId                       , PeridigmField::STEP_N);
+    PK2_Stress_NP1            = blockIt->getData( m_PK2StressFieldId                       , PeridigmField::STEP_NP1);
+    Piola_Stress_XX           = blockIt->getData( m_bondLevelPiolaStressXXFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_XY           = blockIt->getData( m_bondLevelPiolaStressXYFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_XZ           = blockIt->getData( m_bondLevelPiolaStressXZFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_YX           = blockIt->getData( m_bondLevelPiolaStressYXFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_YY           = blockIt->getData( m_bondLevelPiolaStressYYFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_YZ           = blockIt->getData( m_bondLevelPiolaStressYZFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_ZX           = blockIt->getData( m_bondLevelPiolaStressZXFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_ZY           = blockIt->getData( m_bondLevelPiolaStressZYFieldId          , PeridigmField::STEP_NONE);
+    Piola_Stress_ZZ           = blockIt->getData( m_bondLevelPiolaStressZZFieldId          , PeridigmField::STEP_NONE);
+    Stress_Integral           = blockIt->getData( m_stressIntegralFieldId                  , PeridigmField::STEP_NONE);
+    Strain_Rate_XX            = blockIt->getData( m_bondLevelStrainRateXXFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_XY            = blockIt->getData( m_bondLevelStrainRateXYFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_XZ            = blockIt->getData( m_bondLevelStrainRateXZFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_YX            = blockIt->getData( m_bondLevelStrainRateYXFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_YY            = blockIt->getData( m_bondLevelStrainRateYYFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_YZ            = blockIt->getData( m_bondLevelStrainRateYZFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_ZX            = blockIt->getData( m_bondLevelStrainRateZXFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_ZY            = blockIt->getData( m_bondLevelStrainRateZYFieldId           , PeridigmField::STEP_NONE);
+    Strain_Rate_ZZ            = blockIt->getData( m_bondLevelStrainRateZZFieldId           , PeridigmField::STEP_NONE);
+    Strain_XX_N               = blockIt->getData( m_bondLevelStrainXXFieldId               , PeridigmField::STEP_N);
+    Strain_XX_NP1             = blockIt->getData( m_bondLevelStrainXXFieldId               , PeridigmField::STEP_NP1);
+    Strain_XY_N               = blockIt->getData( m_bondLevelStrainXYFieldId               , PeridigmField::STEP_N);
+    Strain_XY_NP1             = blockIt->getData( m_bondLevelStrainXYFieldId               , PeridigmField::STEP_NP1);
+    Strain_XZ_N               = blockIt->getData( m_bondLevelStrainXZFieldId               , PeridigmField::STEP_N);
+    Strain_XZ_NP1             = blockIt->getData( m_bondLevelStrainXZFieldId               , PeridigmField::STEP_NP1);
+    Strain_YX_N               = blockIt->getData( m_bondLevelStrainYXFieldId               , PeridigmField::STEP_N);
+    Strain_YX_NP1             = blockIt->getData( m_bondLevelStrainYXFieldId               , PeridigmField::STEP_NP1);
+    Strain_YY_N               = blockIt->getData( m_bondLevelStrainYYFieldId               , PeridigmField::STEP_N);
+    Strain_YY_NP1             = blockIt->getData( m_bondLevelStrainYYFieldId               , PeridigmField::STEP_NP1);
+    Strain_YZ_N               = blockIt->getData( m_bondLevelStrainYZFieldId               , PeridigmField::STEP_N);
+    Strain_YZ_NP1             = blockIt->getData( m_bondLevelStrainYZFieldId               , PeridigmField::STEP_NP1);
+    Strain_ZX_N               = blockIt->getData( m_bondLevelStrainZXFieldId               , PeridigmField::STEP_N);
+    Strain_ZX_NP1             = blockIt->getData( m_bondLevelStrainZXFieldId               , PeridigmField::STEP_NP1);
+    Strain_ZY_N               = blockIt->getData( m_bondLevelStrainZYFieldId               , PeridigmField::STEP_N);
+    Strain_ZY_NP1             = blockIt->getData( m_bondLevelStrainZYFieldId               , PeridigmField::STEP_NP1);
+    Strain_ZZ_N               = blockIt->getData( m_bondLevelStrainZZFieldId               , PeridigmField::STEP_N);
+    Strain_ZZ_NP1             = blockIt->getData( m_bondLevelStrainZZFieldId               , PeridigmField::STEP_NP1);
+    PK2_Stress_XX_N           = blockIt->getData( m_bondLevelPK2StressXXFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_XY_N           = blockIt->getData( m_bondLevelPK2StressXYFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_XZ_N           = blockIt->getData( m_bondLevelPK2StressXZFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_YX_N           = blockIt->getData( m_bondLevelPK2StressYXFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_YY_N           = blockIt->getData( m_bondLevelPK2StressYYFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_YZ_N           = blockIt->getData( m_bondLevelPK2StressYZFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_ZX_N           = blockIt->getData( m_bondLevelPK2StressZXFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_ZY_N           = blockIt->getData( m_bondLevelPK2StressZYFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_ZZ_N           = blockIt->getData( m_bondLevelPK2StressZZFieldId            , PeridigmField::STEP_N);
+    PK2_Stress_XX_NP1         = blockIt->getData( m_bondLevelPK2StressXXFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_XY_NP1         = blockIt->getData( m_bondLevelPK2StressXYFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_XZ_NP1         = blockIt->getData( m_bondLevelPK2StressXZFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_YX_NP1         = blockIt->getData( m_bondLevelPK2StressYXFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_YY_NP1         = blockIt->getData( m_bondLevelPK2StressYYFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_YZ_NP1         = blockIt->getData( m_bondLevelPK2StressYZFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_ZX_NP1         = blockIt->getData( m_bondLevelPK2StressZXFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_ZY_NP1         = blockIt->getData( m_bondLevelPK2StressZYFieldId            , PeridigmField::STEP_NP1);
+    PK2_Stress_ZZ_NP1         = blockIt->getData( m_bondLevelPK2StressZZFieldId            , PeridigmField::STEP_NP1);
+    Deformation_Gradient_XX   = blockIt->getData( m_bondLevelDeformationGradientXXFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_XY   = blockIt->getData( m_bondLevelDeformationGradientXYFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_XZ   = blockIt->getData( m_bondLevelDeformationGradientXZFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_YX   = blockIt->getData( m_bondLevelDeformationGradientYXFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_YY   = blockIt->getData( m_bondLevelDeformationGradientYYFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_YZ   = blockIt->getData( m_bondLevelDeformationGradientYZFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_ZX   = blockIt->getData( m_bondLevelDeformationGradientZXFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_ZY   = blockIt->getData( m_bondLevelDeformationGradientZYFieldId  , PeridigmField::STEP_NONE);
+    Deformation_Gradient_ZZ   = blockIt->getData( m_bondLevelDeformationGradientZZFieldId  , PeridigmField::STEP_NONE);
 
-    double *normal_N_values;
-    double *normal_NP1_values;
-    normal_N->ExtractView(&normal_N_values);
-    normal_NP1->ExtractView(&normal_NP1_values);
 
-    double *horizon_values;
-    horizon->ExtractView(&horizon_values);
+   }
 
-    double *volume_values;
-    volume->ExtractView(&volume_values);
+       // extractview to alter global value in vectors
+       double *coordinates_N_values          ;  coordinates_N->ExtractView(&coordinates_N_values); //CDV
+       double *coordinates_NP1_values        ;  coordinates_NP1->ExtractView(&coordinates_NP1_values); //CDV
+       double *displacement_N_values         ;  displacement_N->ExtractView(&displacement_N_values); //CDV
+       double *displacement_NP1_values       ;  displacement_NP1->ExtractView(&displacement_NP1_values); //CDV
+       double *velocity_N_values             ;  velocity_N->ExtractView(&velocity_N_values); //CDV
+       double *velocity_NP1_values           ;  velocity_NP1->ExtractView(&velocity_NP1_values); //CDV
+       double *damage_N_values               ;  damage_N->ExtractView(&damage_N_values); //DAMAGE
+       double *damage_NP1_values             ;  damage_NP1->ExtractView(&damage_NP1_values); //DAMAGE
+       double *horizon_values                ;  horizon->ExtractView(&horizon_values); //HORIZON
 
-    Teuchos::RCP<Epetra_Vector> acceleration_N_values        = peridigm->getA();
-    Teuchos::RCP<Epetra_Vector> acceleration_NP1_values      = peridigm->getA();
-    Teuchos::RCP<Epetra_Vector> initialPosition              = peridigm->getX();
-    Teuchos::RCP<Epetra_Vector> currentPosition              = peridigm->getY();
-    Teuchos::RCP<Epetra_Vector> force                        = peridigm->getForce();
-    Teuchos::RCP<Epetra_Vector> displacement                 = peridigm->getU();
-    Teuchos::RCP<Epetra_Vector> displacement_inc             = peridigm->getDeltaU();
-    Teuchos::RCP<Epetra_Vector> blockIDs                     = peridigm->getBlockIDs();
+       // From concrete Model:
+       double *modelCoordinates_values       ;  modelCoordinates->ExtractView(&modelCoordinates_values); // MODELCOORD - NODE - VECTOR
+       double *force_density_N_values        ;  force_density_N->ExtractView(&force_density_N_values); //FORCEDENSITY - NODE
+       double *force_density_NP1_values      ;  force_density_NP1->ExtractView(&force_density_N_values); //FORCEDENSITY - NODE
+       double *bondDamage_N_values           ;  bondDamage_N->ExtractView(&bondDamage_N_values); //BONDDAMAGE - BOND
+       double *bondDamage_NP1_values         ;  bondDamage_NP1->ExtractView(&bondDamage_NP1_values); //BONDDAMAGE - BOND
+       double *influenceState_values         ;  influenceState->ExtractView(&influenceState_values); //INFLUENCESTATE - BOND
+       double *weightedVolume_values         ;  weightedVolume->ExtractView(&weightedVolume_values); //WEIGHTEDVOLS - ELEMENT
+       double *gradientWeightX_values        ;  gradientWeightX->ExtractView(&gradientWeightX_values); //GRADWEIGHT - BOND - SCALAR
+       double *gradientWeightY_values        ;  gradientWeightY->ExtractView(&gradientWeightY_values); //GRADWEIGHT - BOND - SCALAR
+       double *gradientWeightZ_values        ;  gradientWeightZ->ExtractView(&gradientWeightZ_values); //GRADWEIGHT - BOND - SCALAR
+       double *gradientWeightEval_values     ;  gradientWeightEval->ExtractView(&gradientWeightEval_values); //GRADWEIGHTFLAG - ELEMENT
+       double *velocityGradientX_values      ;  velocityGradientX->ExtractView(&velocityGradientX_values); // DEFGRAD - ELEMENT  - VECTOR
+       double *velocityGradientY_values      ;  velocityGradientY->ExtractView(&velocityGradientY_values); // DEFGRAD - ELEMENT  - VECTOR
+       double *velocityGradientZ_values      ;  velocityGradientZ->ExtractView(&velocityGradientZ_values); // DEFGRAD - ELEMENT  - VECTOR
+       double *velocityGradientDotX_values   ;  velocityGradientDotX->ExtractView(&velocityGradientDotX_values); // DEFGRAD - ELEMENT  - VECTOR
+       double *velocityGradientDotY_values   ;  velocityGradientDotY->ExtractView(&velocityGradientDotY_values); // DEFGRAD - ELEMENT  - VECTOR
+       double *velocityGradientDotZ_values   ;  velocityGradientDotZ->ExtractView(&velocityGradientDotZ_values); // DEFGRAD - ELEMENT - VECTOR
+       double *Green_Lagrange_Strain_N_val   ;  Green_Lagrange_Strain_N->ExtractView(&Green_Lagrange_Strain_N_val); //GLSTRAIN - ELEMENT - FULLTENSOR
+       double *Green_Lagrange_Strain_NP1_val ;  Green_Lagrange_Strain_NP1->ExtractView(&Green_Lagrange_Strain_NP1_val); //GLSTRAIN - ELEMENT - FULLTENSOR
+       double *Principal_Strains_values      ;  Principal_Strains->ExtractView(&Principal_Strains_values); //PSTRAIN - ELEMENT - VECTOR
+       double *StrainRate_values             ;  StrainRate->ExtractView(&StrainRate_values); //SRATE_PK2 - ELEMENT - FULL TENSOR
+       double *PK2_Stress_N_values           ;  PK2_Stress_N->ExtractView(&PK2_Stress_N_values); //STRATE_PK2 - ELEMENT - FULL TENSOR
+       double *PK2_Stress_NP1_values         ;  PK2_Stress_NP1->ExtractView(&PK2_Stress_NP1_values); //STRATE_PK2 - ELEMENT - FULL TENSOR
+       double *Piola_Stress_XX_values        ;  Piola_Stress_XX->ExtractView(&Piola_Stress_XX_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_XY_values        ;  Piola_Stress_XY->ExtractView(&Piola_Stress_XY_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_XZ_values        ;  Piola_Stress_XZ->ExtractView(&Piola_Stress_XZ_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_YX_values        ;  Piola_Stress_YX->ExtractView(&Piola_Stress_YX_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_YY_values        ;  Piola_Stress_YY->ExtractView(&Piola_Stress_YY_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_YZ_values        ;  Piola_Stress_YZ->ExtractView(&Piola_Stress_YZ_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_ZX_values        ;  Piola_Stress_ZX->ExtractView(&Piola_Stress_ZX_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_ZY_values        ;  Piola_Stress_ZY->ExtractView(&Piola_Stress_ZY_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_ZZ_values        ;  Piola_Stress_ZZ->ExtractView(&Piola_Stress_ZZ_values); //PIOLASTRESS - BOND - SCALAR
+       double *Stress_Integral_values        ;  Stress_Integral->ExtractView(&Stress_Integral_values); //STRESSINT - ELEMENT - FULLTENSOR
+       double *Strain_Rate_XX_values         ;  Strain_Rate_XX->ExtractView(&Strain_Rate_XX_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_XY_values         ;  Strain_Rate_XY->ExtractView(&Strain_Rate_XY_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_XZ_values         ;  Strain_Rate_XZ->ExtractView(&Strain_Rate_XZ_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_YX_values         ;  Strain_Rate_YX->ExtractView(&Strain_Rate_YX_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_YY_values         ;  Strain_Rate_YY->ExtractView(&Strain_Rate_YY_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_YZ_values         ;  Strain_Rate_YZ->ExtractView(&Strain_Rate_YZ_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_ZX_values         ;  Strain_Rate_ZX->ExtractView(&Strain_Rate_ZX_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_ZY_values         ;  Strain_Rate_ZY->ExtractView(&Strain_Rate_ZY_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_ZZ_values         ;  Strain_Rate_ZZ->ExtractView(&Strain_Rate_ZZ_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XX_N_values            ;  Strain_XX_N->ExtractView(&Strain_XX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XX_NP1_values          ;  Strain_XX_NP1->ExtractView(&Strain_XX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XY_N_values            ;  Strain_XY_N->ExtractView(&Strain_XY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XY_NP1_values          ;  Strain_XY_NP1->ExtractView(&Strain_XY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XZ_N_values            ;  Strain_XZ_N->ExtractView(&Strain_XZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XZ_NP1_values          ;  Strain_XZ_NP1->ExtractView(&Strain_XZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YX_N_values            ;  Strain_YX_N->ExtractView(&Strain_YX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YX_NP1_values          ;  Strain_YX_NP1->ExtractView(&Strain_YX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YY_N_values            ;  Strain_YY_N->ExtractView(&Strain_YY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YY_NP1_values          ;  Strain_YY_NP1->ExtractView(&Strain_YY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YZ_N_values            ;  Strain_YZ_N->ExtractView(&Strain_YZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YZ_NP1_values          ;  Strain_YZ_NP1->ExtractView(&Strain_YZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZX_N_values            ;  Strain_ZX_N->ExtractView(&Strain_ZX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZX_NP1_values          ;  Strain_ZX_NP1->ExtractView(&Strain_ZX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZY_N_values            ;  Strain_ZY_N->ExtractView(&Strain_ZY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZY_NP1_values          ;  Strain_ZY_NP1->ExtractView(&Strain_ZY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZZ_N_values            ;  Strain_ZZ_N->ExtractView(&Strain_ZZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZZ_NP1_values          ;  Strain_ZZ_NP1->ExtractView(&Strain_ZZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XX_N_values        ;  PK2_Stress_XX_N->ExtractView(&PK2_Stress_XX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XX_NP1_values      ;  PK2_Stress_XX_NP1->ExtractView(&PK2_Stress_XX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XY_N_values        ;  PK2_Stress_XY_N->ExtractView(&PK2_Stress_XY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XY_NP1_values      ;  PK2_Stress_XY_NP1->ExtractView(&PK2_Stress_XY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XZ_N_values        ;  PK2_Stress_XZ_N->ExtractView(&PK2_Stress_XZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XZ_NP1_values      ;  PK2_Stress_XZ_NP1->ExtractView(&PK2_Stress_XZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YX_N_values        ;  PK2_Stress_YX_N->ExtractView(&PK2_Stress_YX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YX_NP1_values      ;  PK2_Stress_YX_NP1->ExtractView(&PK2_Stress_YX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YY_N_values        ;  PK2_Stress_YY_N->ExtractView(&PK2_Stress_YY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YY_NP1_values      ;  PK2_Stress_YY_NP1->ExtractView(&PK2_Stress_YY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YZ_N_values        ;  PK2_Stress_YZ_N->ExtractView(&PK2_Stress_YZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YZ_NP1_values      ;  PK2_Stress_YZ_NP1->ExtractView(&PK2_Stress_YZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZX_N_values        ;  PK2_Stress_ZX_N->ExtractView(&PK2_Stress_ZX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZX_NP1_values      ;  PK2_Stress_ZX_NP1->ExtractView(&PK2_Stress_ZX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZY_N_values        ;  PK2_Stress_ZY_N->ExtractView(&PK2_Stress_ZY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZY_NP1_values      ;  PK2_Stress_ZY_NP1->ExtractView(&PK2_Stress_ZY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZZ_N_values        ;  PK2_Stress_ZZ_N->ExtractView(&PK2_Stress_ZZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZZ_NP1_values      ;  PK2_Stress_ZZ_NP1->ExtractView(&PK2_Stress_ZZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Deformation_Gradient_XX_values;  Deformation_Gradient_XX->ExtractView(&Deformation_Gradient_XX_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+       double *Deformation_Gradient_XY_values;  Deformation_Gradient_XY->ExtractView(&Deformation_Gradient_XY_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+       double *Deformation_Gradient_XZ_values;  Deformation_Gradient_XZ->ExtractView(&Deformation_Gradient_XZ_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+       double *Deformation_Gradient_YX_values;  Deformation_Gradient_YX->ExtractView(&Deformation_Gradient_YX_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+       double *Deformation_Gradient_YY_values;  Deformation_Gradient_YY->ExtractView(&Deformation_Gradient_YY_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+       double *Deformation_Gradient_YZ_values;  Deformation_Gradient_YZ->ExtractView(&Deformation_Gradient_YZ_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+       double *Deformation_Gradient_ZX_values;  Deformation_Gradient_ZX->ExtractView(&Deformation_Gradient_ZX_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+       double *Deformation_Gradient_ZY_values;  Deformation_Gradient_ZY->ExtractView(&Deformation_Gradient_ZY_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+       double *Deformation_Gradient_ZZ_values;  Deformation_Gradient_ZZ->ExtractView(&Deformation_Gradient_ZZ_values); //BLEVEL_DEFGRAD - BOND - SCALAR
 
-    Teuchos::RCP<const Epetra_BlockMap> map = blockIt->getOwnedScalarPointMap();
-    for(int i=0 ; i<numOwnedPoints ; i++){
+   // Quantities accesible through get
+      blockIDs         = peridigm->getBlockIDs();
+      deltaTemperature = peridigm->getDeltaTemperature();
+      x                = peridigm->getX();
+      u                = peridigm->getU();
+      y                = peridigm->getY();
+      v                = peridigm->getV();
+      a                = peridigm->getA();
+      force            = peridigm->getForce();
+      externalForce    = peridigm->getExternalForce();
+      contactForce     = peridigm->getContactForce();
+      volume           = peridigm->getVolume();
+      deltaU           = peridigm->getDeltaU();
 
-      //// Scalar Quantities N////
-      GID[i] = map->GID(i);
-      VOLUME.read( (char*)&volume_values[i], sizeof(double));
+
+    for(int i=0 ; i < num_PD_nodes_onRank ; i++){
+
+    //// Scalar Quantities N or Step None or Step N+1////
+      BLOCKIDS.read( (char*)&(*blockIDs)[i], sizeof(double));
+      VOLUME.read( (char*)&(*volume)[i], sizeof(double));
       HORIZON.read( (char*)&horizon_values[i], sizeof(double));
       DAMAGE.read( (char*)&damage_N_values[i], sizeof(double));
-      //////////////////////////
+      BONDDAMAGE.read( (char*)&bondDamage_N_values[i], sizeof(double) );
+      BONDDAMAGE.read( (char*)&bondDamage_NP1_values[i], sizeof(double) );
+      INFLUENCESTATE.read( (char*)&influenceState_values[i], sizeof(double) );
+      WEIGHTEDVOLS.read( (char*)&weightedVolume_values[i], sizeof(double) );
 
-      //// Scalar Quantities N+1////
+      GRADWEIGHT.read( (char*)&gradientWeightX_values[i], sizeof(double) );
+      GRADWEIGHT.read( (char*)&gradientWeightY_values[i], sizeof(double) );
+      GRADWEIGHT.read( (char*)&gradientWeightY_values[i], sizeof(double) );
+
+      GRADWEIGHTFLAG.read( (char*)&gradientWeightEval_values[i], sizeof(double) );
+
+       PIOLASTRESS.read( (char*)&Piola_Stress_XX_values[i], sizeof(double) );
+       PIOLASTRESS.read( (char*)&Piola_Stress_XY_values[i], sizeof(double) );
+       PIOLASTRESS.read( (char*)&Piola_Stress_XZ_values[i], sizeof(double) );
+       PIOLASTRESS.read( (char*)&Piola_Stress_YX_values[i], sizeof(double) );
+       PIOLASTRESS.read( (char*)&Piola_Stress_YY_values[i], sizeof(double) );
+       PIOLASTRESS.read( (char*)&Piola_Stress_YZ_values[i], sizeof(double) );
+       PIOLASTRESS.read( (char*)&Piola_Stress_ZX_values[i], sizeof(double) );
+       PIOLASTRESS.read( (char*)&Piola_Stress_ZY_values[i], sizeof(double) );
+       PIOLASTRESS.read( (char*)&Piola_Stress_ZZ_values[i], sizeof(double) );
+
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_XX_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_XY_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_XZ_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_YX_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_YY_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_YZ_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_ZX_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_ZY_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_ZZ_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZZ_NP1_values[i], sizeof(double) );
+
+      BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_XX_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_XY_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_XZ_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_YX_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_YY_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_YZ_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_ZX_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_ZY_values[i], sizeof(double) );
+      BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_ZZ_values[i], sizeof(double) );
+
       DAMAGE.read( (char*)&damage_NP1_values[i], sizeof(double));
-      //////////////////////////
 
 
-      //// Vector Quantities N ////
+      //// Vector Quantities ////
       for(int j = 0 ; j < 3 ; j++){
-        FORCE_DENSITY.read( (char*)&force_density_N_values[i*3 + j], sizeof(double));
-        FORCE.read( (char*)&(*force)[i*3 + j], sizeof(double));
-        COORDINATES.read( (char*)&coordinates_N_values [i*3 + j], sizeof(double));
-        DISPLACEMENT.read( (char*)&displacement_N_values[i*3 + j], sizeof(double));
-        VELOCITY.read( (char*)&velocity_N_values[i*3 + j], sizeof(double));
-        ACCELERATION.read( (char*)&(*acceleration_N_values)[i*3 + j], sizeof(double));
-        NORMAL.read( (char*)&normal_N_values[i*3 + j], sizeof(double));
+
+        // Kinematic information will be stored as x_{node, dof} :
+        // x_11 u_11 y_11 ... deltaU_11 x_12 u_12 y_12 ...
+        XUYVADELTAU.read( (char*)&(*x)[i*3+j], sizeof(double));
+        XUYVADELTAU.read( (char*)&(*u)[i*3+j], sizeof(double));
+        XUYVADELTAU.read( (char*)&(*y)[i*3+j], sizeof(double));
+        XUYVADELTAU.read( (char*)&(*v)[i*3+j], sizeof(double));
+        XUYVADELTAU.read( (char*)&(*a)[i*3+j], sizeof(double));
+        XUYVADELTAU.read( (char*)&(*deltaU)[i*3+j], sizeof(double));
+
+        // F_11 EF_11 CF_11 F_12 EF_12 CF_12 ...
+        FORCE.read( (char*)&(*force)[i*3+j], sizeof(double));
+        FORCE.read( (char*)&(*contactForce)[i*3+j], sizeof(double));
+        FORCE.read( (char*)&(*externalForce)[i*3+j], sizeof(double));
+
+        /// Two step VECTOR files ///
+        /// map = X_{node, quantity, time} = X_{node*dofs*quantities*2+2*dof*quantity+time*dof*quantity}
+        // Step N //
+        CDV.read( (char*)&coordinates_N_values[i*3+j], sizeof(double) );
+        CDV.read( (char*)&displacement_N_values[i*3+j], sizeof(double) );
+        CDV.read( (char*)&velocity_N_values[i*3+j], sizeof(double) );
+
+        // Step N+1 //
+        CDV.read( (char*)&coordinates_NP1_values[i*3+j], sizeof(double) );
+        CDV.read( (char*)&displacement_NP1_values[i*3+j], sizeof(double) );
+        CDV.read( (char*)&velocity_NP1_values[i*3+j], sizeof(double) );
+
+        // CONCRETE QUANTITIES //
+        MODELCOORD.read( (char*)&modelCoordinates_values[i*3+j], sizeof(double) );
+        FORCEDENSITY.read( (char*)&force_density_N_values[i*3+j], sizeof(double) );
+        FORCEDENSITY.read( (char*)&force_density_NP1_values[i*3+j], sizeof(double) );
+        DEFGRAD.read( (char*)&velocityGradientX_values[i*3+j], sizeof(double) );
+        DEFGRAD.read( (char*)&velocityGradientY_values[i*3+j], sizeof(double) );
+        DEFGRAD.read( (char*)&velocityGradientZ_values[i*3+j], sizeof(double) );
+        DEFGRAD.read( (char*)&velocityGradientDotX_values[i*3+j], sizeof(double) );
+        DEFGRAD.read( (char*)&velocityGradientDotY_values[i*3+j], sizeof(double) );
+        DEFGRAD.read( (char*)&velocityGradientDotZ_values[i*3+j], sizeof(double) );
+        PSTRAIN.read( (char*)&Principal_Strains_values[i*3+j], sizeof(double) );
+       if(i == 5 && j==2 && rank == 0){
+        PetscPrintf(PETSC_COMM_WORLD, "PStrain Read = %e \n ");
       }
-      //////////////////////////
 
-      //// Vector Quantities N+1 ////
-      for(int j = 0 ; j < 3 ; j++){
-        FORCE_DENSITY.read( (char*)&force_density_NP1_values[i*3 + j], sizeof(double));
-        COORDINATES.read( (char*)&coordinates_NP1_values [i*3 + j], sizeof(double));
-        DISPLACEMENT.read( (char*)&displacement_NP1_values[i*3 + j], sizeof(double));
-        VELOCITY.read( (char*)&velocity_NP1_values[i*3 + j], sizeof(double));
-        ACCELERATION.read( (char*)&(*acceleration_NP1_values)[i*3 + j], sizeof(double));
-        NORMAL.read( (char*)&normal_NP1_values[i*3 + j], sizeof(double));
+      }
+
+
+      //// Tensor Quantites 9 per Node /////
+      for(int j = 0 ; j < 9 ; j ++){
+       GLSTRAIN.read( (char*)&Green_Lagrange_Strain_N_val[i*9+j], sizeof(double));
+       GLSTRAIN.read( (char*)&Green_Lagrange_Strain_NP1_val[i*9+j], sizeof(double));
+
+       SRATE_PK2.read( (char*)&StrainRate_values[i*9+j], sizeof(double));
+       SRATE_PK2.read( (char*)&PK2_Stress_N_values[i*9+j], sizeof(double));
+       SRATE_PK2.read( (char*)&PK2_Stress_NP1_values[i*9+j], sizeof(double));
+
+       STRESSINT.read( (char*)&Stress_Integral_values[i*9+j], sizeof(double));
       }
       //////////////////////////
 
     }
-  }
+
   MPI_Barrier(PETSC_COMM_WORLD);
 
-  FORCE_DENSITY.close();
-  FORCE.close();
-  COORDINATES.close();
-  DISPLACEMENT.close();
-  VELOCITY.close();
-  ACCELERATION.close();
-  DAMAGE.close();
-  NORMAL.close();
+
   VOLUME.close();
   HORIZON.close();
+  DAMAGE.close();
+  XUYVADELTAU.close();
+  BLOCKIDS.close();
+  FORCE.close();
+  CDV.close();
+  MODELCOORD.close();
+  FORCEDENSITY.close();
+  BONDDAMAGE.close();
+  INFLUENCESTATE.close();
+  WEIGHTEDVOLS.close();
+  GRADWEIGHT.close();
+  GRADWEIGHTFLAG.close();
+  DEFGRAD.close();
+  GLSTRAIN.close();
+  PSTRAIN.close();
+  SRATE_PK2.close();
+  PIOLASTRESS.close();
+  STRESSINT.close();
+  BLEVELSTRAIN_STRAINRATE.close();
+  BLEVEL_DEFGRAD.close();
 
   PetscPrintf(PETSC_COMM_WORLD, "Done Reading PD Restarts. \n");
   PetscFunctionReturn(ierr);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "ReadPeridigmRestarts_test"
+PetscErrorCode ReadPeridigmRestarts_test(PARAMETERS *par, ParticleManager &manager, int StepRestart, Teuchos::RCP<PeridigmNS::Peridigm> peridigm, int num_PD_nodes_onRank)
+{
+// Restructured to minimize memory required at startup
+PetscFunctionBegin;
+PetscErrorCode ierr = 0;
+PetscMPIInt rank;
+MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+ostringstream FILESTREAM;
+string        FILENAME;
+
+
+PetscPrintf(PETSC_COMM_WORLD, "Reading Peridigm Restarts in Parallel...\n");
+  // Declare all RCP vectors available through Get functionality:
+  Teuchos::RCP<Epetra_Vector> blockIDs, volume, deltaTemperature, x, u, y, v, a, force, contactForce, externalForce, deltaU;
+
+  // Quantitites available through Block iterator
+  Teuchos::RCP<Epetra_Vector> coordinates_N,
+  coordinates_NP1, displacement_N, displacement_NP1, velocity_N, velocity_NP1,
+  acceleration_N, acceleration_NP1, damage_N, damage_NP1, horizon;
+
+  // Quantities from concrete model:
+  Teuchos::RCP<Epetra_Vector> modelCoordinates,
+                              force_density_N,
+                              force_density_NP1,
+                              bondDamage_N,
+                              bondDamage_NP1,
+                              influenceState,
+                              weightedVolume,
+                              gradientWeightX,
+                              gradientWeightY,
+                              gradientWeightZ,
+                              gradientWeightEval,
+                              velocityGradientX,
+                              velocityGradientY,
+                              velocityGradientZ,
+                              velocityGradientDotX,
+                              velocityGradientDotY,
+                              velocityGradientDotZ,
+                              Green_Lagrange_Strain_N,
+                              Green_Lagrange_Strain_NP1,
+                              Principal_Strains,
+                              StrainRate,
+                              PK2_Stress_N,
+                              PK2_Stress_NP1,
+                              Piola_Stress_XX,
+                              Piola_Stress_XY,
+                              Piola_Stress_XZ,
+                              Piola_Stress_YX,
+                              Piola_Stress_YY,
+                              Piola_Stress_YZ,
+                              Piola_Stress_ZX,
+                              Piola_Stress_ZY,
+                              Piola_Stress_ZZ,
+                              Stress_Integral,
+                              Strain_Rate_XX,
+                              Strain_Rate_XY,
+                              Strain_Rate_XZ,
+                              Strain_Rate_YX,
+                              Strain_Rate_YY,
+                              Strain_Rate_YZ,
+                              Strain_Rate_ZX,
+                              Strain_Rate_ZY,
+                              Strain_Rate_ZZ,
+                              Strain_XX_N,
+                              Strain_XX_NP1,
+                              Strain_XY_N,
+                              Strain_XY_NP1,
+                              Strain_XZ_N,
+                              Strain_XZ_NP1,
+                              Strain_YX_N,
+                              Strain_YX_NP1,
+                              Strain_YY_N,
+                              Strain_YY_NP1,
+                              Strain_YZ_N,
+                              Strain_YZ_NP1,
+                              Strain_ZX_N,
+                              Strain_ZX_NP1,
+                              Strain_ZY_N,
+                              Strain_ZY_NP1,
+                              Strain_ZZ_N,
+                              Strain_ZZ_NP1,
+                              PK2_Stress_XX_N,
+                              PK2_Stress_XX_NP1,
+                              PK2_Stress_XY_N,
+                              PK2_Stress_XY_NP1,
+                              PK2_Stress_XZ_N,
+                              PK2_Stress_XZ_NP1,
+                              PK2_Stress_YX_N,
+                              PK2_Stress_YX_NP1,
+                              PK2_Stress_YY_N,
+                              PK2_Stress_YY_NP1,
+                              PK2_Stress_YZ_N,
+                              PK2_Stress_YZ_NP1,
+                              PK2_Stress_ZX_N,
+                              PK2_Stress_ZX_NP1,
+                              PK2_Stress_ZY_N,
+                              PK2_Stress_ZY_NP1,
+                              PK2_Stress_ZZ_N,
+                              PK2_Stress_ZZ_NP1,
+                              Deformation_Gradient_XX,
+                              Deformation_Gradient_XY,
+                              Deformation_Gradient_XZ,
+                              Deformation_Gradient_YX,
+                              Deformation_Gradient_YY,
+                              Deformation_Gradient_YZ,
+                              Deformation_Gradient_ZX,
+                              Deformation_Gradient_ZY,
+                              Deformation_Gradient_ZZ;
+
+// Open and read all files one by one on each rank to avoid filling up the stack on startup:
+FILESTREAM << "PeridigmRestarts/RestartBlockIDs." << rank << "." << StepRestart << ".dat";
+FILENAME = FILESTREAM.str();
+ifstream BLOCKIDS;
+BLOCKIDS.open(FILENAME, ios::in | ios::binary);
+FILESTREAM.str("");FILESTREAM.clear();
+  blockIDs         = peridigm->getBlockIDs();
+  for(int i=0 ; i< num_PD_nodes_onRank ; i++){
+    BLOCKIDS.read( (char*)&(*blockIDs)[i], sizeof(int));
+  }
+BLOCKIDS.close();
+MPI_Barrier(PETSC_COMM_WORLD);
+
+FILESTREAM << "PeridigmRestarts/RestartXUYVAdeltaU." << rank << "." << par->stepNumber << ".dat";
+FILENAME = FILESTREAM.str();
+ifstream XUYVADELTAU;
+XUYVADELTAU.open(FILENAME, ios::in | ios::binary);
+FILESTREAM.str("");FILESTREAM.clear();
+x                = peridigm->getX();
+u                = peridigm->getU();
+y                = peridigm->getY();
+v                = peridigm->getV();
+a                = peridigm->getA();
+deltaU           = peridigm->getDeltaU();
+for(int i = 0 ; i <  num_PD_nodes_onRank ; i++){
+  for(int j = 0 ; j < 3 ; j++){
+XUYVADELTAU.read( (char*)&(*x)[i*3+j], sizeof(double));
+XUYVADELTAU.read( (char*)&(*u)[i*3+j], sizeof(double));
+XUYVADELTAU.read( (char*)&(*y)[i*3+j], sizeof(double));
+XUYVADELTAU.read( (char*)&(*v)[i*3+j], sizeof(double));
+XUYVADELTAU.read( (char*)&(*a)[i*3+j], sizeof(double));
+XUYVADELTAU.read( (char*)&(*deltaU)[i*3+j], sizeof(double));}}
+XUYVADELTAU.close();
+MPI_Barrier(PETSC_COMM_WORLD);
+//
+FILESTREAM << "PeridigmRestarts/RestartForce." << rank << "." << par->stepNumber << ".dat";
+FILENAME = FILESTREAM.str();
+ifstream FORCE;
+FORCE.open(FILENAME, ios::in | ios::binary);
+FILESTREAM.str("");FILESTREAM.clear();
+force            = peridigm->getForce();
+externalForce    = peridigm->getExternalForce();
+contactForce     = peridigm->getContactForce();
+// F_11 EF_11 CF_11 F_12 EF_12 CF_12 ...
+for(int i = 0 ; i <  num_PD_nodes_onRank ; i++){
+  for(int j = 0 ; j < 3 ; j++){
+FORCE.read( (char*)&(*force)[i*3+j], sizeof(double));
+FORCE.read( (char*)&(*contactForce)[i*3+j], sizeof(double));
+FORCE.read( (char*)&(*externalForce)[i*3+j], sizeof(double));
+}}
+FORCE.close();
+MPI_Barrier(PETSC_COMM_WORLD);
+
+FILESTREAM << "PeridigmRestarts/RestartCDV." << rank << "." << par->stepNumber << ".dat";
+FILENAME = FILESTREAM.str();
+ifstream CDV;
+CDV.open(FILENAME, ios::in | ios::binary);
+FILESTREAM.str("");FILESTREAM.clear();
+Teuchos::RCP< std::vector<PeridigmNS::Block> > blocks = peridigm->getBlocks();
+for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+  std::string blockName = blockIt->getName();
+  Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+
+  int coordinatesFieldId                 = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Coordinates");
+  int displacementFieldId                = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Displacement");
+  int velocityFieldId                    = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Velocity");
+
+  coordinates_N     = blockIt->getData(coordinatesFieldId   , PeridigmField::STEP_N);
+  coordinates_NP1   = blockIt->getData(coordinatesFieldId   , PeridigmField::STEP_NP1);
+  displacement_N    = blockIt->getData(displacementFieldId  , PeridigmField::STEP_N);
+  displacement_NP1  = blockIt->getData(displacementFieldId  , PeridigmField::STEP_NP1);
+  velocity_N        = blockIt->getData(velocityFieldId      , PeridigmField::STEP_N);
+  velocity_NP1      = blockIt->getData(velocityFieldId      , PeridigmField::STEP_NP1);
+
+  }
+
+  double *coordinates_N_values          ;  coordinates_N->ExtractView(&coordinates_N_values); //CDV
+  double *coordinates_NP1_values        ;  coordinates_NP1->ExtractView(&coordinates_NP1_values); //CDV
+  double *displacement_N_values         ;  displacement_N->ExtractView(&displacement_N_values); //CDV
+  double *displacement_NP1_values       ;  displacement_NP1->ExtractView(&displacement_NP1_values); //CDV
+  double *velocity_N_values             ;  velocity_N->ExtractView(&velocity_N_values); //CDV
+  double *velocity_NP1_values           ;  velocity_NP1->ExtractView(&velocity_NP1_values); //CDV
+  for(int i = 0 ; i++ ; i<  num_PD_nodes_onRank){
+    for(int j = 0 ; j < 3 ; j++){
+     CDV.read( (char*)&coordinates_N_values[i*3+j], sizeof(double) );
+     CDV.read( (char*)&displacement_N_values[i*3+j], sizeof(double) );
+     CDV.read( (char*)&velocity_N_values[i*3+j], sizeof(double) );
+     CDV.read( (char*)&coordinates_NP1_values[i*3+j], sizeof(double) );
+     CDV.read( (char*)&displacement_NP1_values[i*3+j], sizeof(double) );
+     CDV.read( (char*)&velocity_NP1_values[i*3+j], sizeof(double) );
+  }}
+ CDV.close();
+ MPI_Barrier(PETSC_COMM_WORLD);
+
+
+  FILESTREAM << "PeridigmRestarts/RestartVolume." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream VOLUME;
+  VOLUME.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+  volume           = peridigm->getVolume();
+  for(int i = 0 ; i++ ; i<  num_PD_nodes_onRank){
+  VOLUME.read( (char*)&(*volume)[i], sizeof(double));
+  }
+  VOLUME.close();
+  MPI_Barrier(PETSC_COMM_WORLD);
+
+  FILESTREAM << "PeridigmRestarts/RestartHorizon." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream HORIZON;
+  HORIZON.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+  for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+    std::string blockName = blockIt->getName();
+    Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+    int horizonFieldId                     = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Horizon");
+    horizon           = blockIt->getData(horizonFieldId       , PeridigmField::STEP_NONE);
+    }
+
+    double *horizon_values                ;  horizon->ExtractView(&horizon_values); //HORIZON
+    for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+     HORIZON.read( (char*)&horizon_values[i], sizeof(double));
+    }
+
+ HORIZON.close();
+ MPI_Barrier(PETSC_COMM_WORLD);
+
+  FILESTREAM << "PeridigmRestarts/RestartDamage." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream DAMAGE;
+  DAMAGE.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+  for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+  std::string blockName = blockIt->getName();
+  Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+  int m_damageFieldId                    = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Damage");
+  damage_N          = blockIt->getData(m_damageFieldId      , PeridigmField::STEP_N);
+  damage_NP1        = blockIt->getData(m_damageFieldId      , PeridigmField::STEP_NP1);
+  }
+  double *damage_N_values               ;  damage_N->ExtractView(&damage_N_values); //DAMAGE
+  double *damage_NP1_values             ;  damage_NP1->ExtractView(&damage_NP1_values); //DAMAGE
+  for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+   DAMAGE.read( (char*)&damage_N_values[i], sizeof(double));
+   DAMAGE.read( (char*)&damage_NP1_values[i], sizeof(double));
+   }
+
+  DAMAGE.close();
+  MPI_Barrier(PETSC_COMM_WORLD);
+
+
+  FILESTREAM << "PeridigmRestarts/RestartModelCoord." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream MODELCOORD;
+  MODELCOORD.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+  for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+    std::string blockName = blockIt->getName();
+    Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+     int m_modelCoordinatesFieldId                      = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::CONSTANT, "Model_Coordinates");
+     modelCoordinates          = blockIt->getData( m_modelCoordinatesFieldId                , PeridigmField::STEP_NONE);
+   }
+     double *modelCoordinates_values       ;  modelCoordinates->ExtractView(&modelCoordinates_values); // MODELCOORD - NODE - VECTOR
+  for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+   for(int j = 0 ; j ++ ; j < 3){
+    MODELCOORD.read( (char*)&modelCoordinates_values[i*3+j], sizeof(double) );
+  }}
+
+  MODELCOORD.close();
+  MPI_Barrier(PETSC_COMM_WORLD);
+
+
+  FILESTREAM << "PeridigmRestarts/RestartForceDensity." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream FORCEDENSITY;
+  FORCEDENSITY.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+  for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+    std::string blockName = blockIt->getName();
+    Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+    int m_forceDensityFieldId                          = fieldManager->getFieldId(PeridigmField::NODE,    PeridigmField::VECTOR, PeridigmField::TWO_STEP, "Force_Density");
+     force_density_N           = blockIt->getData( m_forceDensityFieldId                    , PeridigmField::STEP_N);
+     force_density_NP1         = blockIt->getData( m_forceDensityFieldId                    , PeridigmField::STEP_NP1);
+
+   }
+    double *force_density_N_values        ;  force_density_N->ExtractView(&force_density_N_values); //FORCEDENSITY - NODE
+    double *force_density_NP1_values      ;  force_density_NP1->ExtractView(&force_density_N_values); //FORCEDENSITY - NODE
+  for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+   for(int j = 0 ; j ++ ; j < 3){
+      FORCEDENSITY.read( (char*)&force_density_N_values[i*3+j], sizeof(double) );
+      FORCEDENSITY.read( (char*)&force_density_NP1_values[i*3+j], sizeof(double) );
+    }
+  }
+  FORCEDENSITY.close();
+  MPI_Barrier(PETSC_COMM_WORLD);
+
+
+  FILESTREAM << "PeridigmRestarts/RestartBondDamage." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream BONDDAMAGE;
+  BONDDAMAGE.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+  for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+    std::string blockName = blockIt->getName();
+    Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+    int m_bondDamageFieldId                            = fieldManager->getFieldId(PeridigmField::BOND,    PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Bond_Damage");
+    bondDamage_N              = blockIt->getData( m_bondDamageFieldId                      , PeridigmField::STEP_N);
+    bondDamage_NP1            = blockIt->getData( m_bondDamageFieldId                      , PeridigmField::STEP_NP1);
+    }
+    double *bondDamage_N_values           ;  bondDamage_N->ExtractView(&bondDamage_N_values); //BONDDAMAGE - BOND
+    double *bondDamage_NP1_values         ;  bondDamage_NP1->ExtractView(&bondDamage_NP1_values); //BONDDAMAGE - BOND
+    for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+      BONDDAMAGE.read( (char*)&bondDamage_N_values[i], sizeof(double) );
+      BONDDAMAGE.read( (char*)&bondDamage_NP1_values[i], sizeof(double) );
+    }
+    BONDDAMAGE.close();
+    MPI_Barrier(PETSC_COMM_WORLD);
+
+
+     FILESTREAM << "PeridigmRestarts/RestartInfluenceState." << rank << "." << par->stepNumber << ".dat";
+     FILENAME = FILESTREAM.str();
+     ifstream INFLUENCESTATE;
+     INFLUENCESTATE.open(FILENAME, ios::in | ios::binary);
+     FILESTREAM.str("");FILESTREAM.clear();
+     for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+    std::string blockName = blockIt->getName();
+    Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+    int m_influenceStateFieldId                        = fieldManager->getFieldId(PeridigmField::BOND,    PeridigmField::SCALAR, PeridigmField::CONSTANT, "Influence_State");
+    influenceState            = blockIt->getData( m_influenceStateFieldId                  , PeridigmField::STEP_NONE);
+    }
+    double *influenceState_values         ;  influenceState->ExtractView(&influenceState_values); //INFLUENCESTATE - BOND
+    for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+        INFLUENCESTATE.read( (char*)&influenceState_values[i], sizeof(double) );
+    }
+
+    INFLUENCESTATE.close();
+    MPI_Barrier(PETSC_COMM_WORLD);
+
+    FILESTREAM << "PeridigmRestarts/RestartWeightedVols." << rank << "." << par->stepNumber << ".dat";
+    FILENAME = FILESTREAM.str();
+    ifstream WEIGHTEDVOLS;
+    WEIGHTEDVOLS.open(FILENAME, ios::in | ios::binary);
+    FILESTREAM.str("");FILESTREAM.clear();
+    for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+      std::string blockName = blockIt->getName();
+      Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+      int m_weightedVolumeFieldId                        = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Weighted_Volume");
+      weightedVolume            = blockIt->getData( m_weightedVolumeFieldId                  , PeridigmField::STEP_NONE);
+      }
+      double *weightedVolume_values         ;  weightedVolume->ExtractView(&weightedVolume_values); //WEIGHTEDVOLS - ELEMENT
+      for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+        WEIGHTEDVOLS.read( (char*)&weightedVolume_values[i], sizeof(double) );
+      }
+
+    WEIGHTEDVOLS.close();
+    MPI_Barrier(PETSC_COMM_WORLD);
+
+    FILESTREAM << "PeridigmRestarts/RestartGradWeight." << rank << "." << par->stepNumber << ".dat";
+    FILENAME = FILESTREAM.str();
+    ifstream GRADWEIGHT;
+    GRADWEIGHT.open(FILENAME, ios::in | ios::binary);
+    FILESTREAM.str("");FILESTREAM.clear();
+    for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+      std::string blockName = blockIt->getName();
+      Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+      int m_gradientWeightXFieldId                       = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Gradient_Weight_X");
+      int m_gradientWeightYFieldId                       = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Gradient_Weight_Y");
+      int m_gradientWeightZFieldId                       = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Gradient_Weight_Z");
+      gradientWeightX           = blockIt->getData( m_gradientWeightXFieldId                 , PeridigmField::STEP_NONE);
+      gradientWeightY           = blockIt->getData( m_gradientWeightYFieldId                 , PeridigmField::STEP_NONE);
+      gradientWeightZ           = blockIt->getData( m_gradientWeightZFieldId                 , PeridigmField::STEP_NONE);
+      }
+      double *gradientWeightX_values        ;  gradientWeightX->ExtractView(&gradientWeightX_values); //GRADWEIGHT - BOND - SCALAR
+      double *gradientWeightY_values        ;  gradientWeightY->ExtractView(&gradientWeightY_values); //GRADWEIGHT - BOND - SCALAR
+      double *gradientWeightZ_values        ;  gradientWeightZ->ExtractView(&gradientWeightZ_values); //GRADWEIGHT - BOND - SCALAR
+      for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+          GRADWEIGHT.read( (char*)&gradientWeightX_values[i], sizeof(double) );
+          GRADWEIGHT.read( (char*)&gradientWeightY_values[i], sizeof(double) );
+          GRADWEIGHT.read( (char*)&gradientWeightY_values[i], sizeof(double) );
+      }
+    GRADWEIGHT.close();
+    MPI_Barrier(PETSC_COMM_WORLD);
+
+    FILESTREAM << "PeridigmRestarts/RestartGradWeightFlag." << rank << "." << par->stepNumber << ".dat";
+    FILENAME = FILESTREAM.str();
+    ifstream GRADWEIGHTFLAG;
+    GRADWEIGHTFLAG.open(FILENAME, ios::in | ios::binary);
+    FILESTREAM.str("");FILESTREAM.clear();
+    for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+      std::string blockName = blockIt->getName();
+      Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+      int m_gradientWeightEvaluationFlagFieldId          = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Gradient_Weight_Evaluation_Flag");
+      gradientWeightEval        = blockIt->getData( m_gradientWeightEvaluationFlagFieldId    , PeridigmField::STEP_NONE);
+      }
+      double *gradientWeightEval_values     ;  gradientWeightEval->ExtractView(&gradientWeightEval_values); //GRADWEIGHTFLAG - ELEMENT -SCALAR
+      for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+        GRADWEIGHTFLAG.read( (char*)&gradientWeightEval_values[i], sizeof(double) );
+      }
+    GRADWEIGHTFLAG.close();
+    MPI_Barrier(PETSC_COMM_WORLD);
+
+    FILESTREAM << "PeridigmRestarts/RestartDefGrad." << rank << "." << par->stepNumber << ".dat";
+    FILENAME = FILESTREAM.str();
+    ifstream DEFGRAD;
+    DEFGRAD.open(FILENAME, ios::in | ios::binary);
+    FILESTREAM.str("");FILESTREAM.clear();
+    for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+      std::string blockName = blockIt->getName();
+      Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+      int m_deformationGradientXFieldId                  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_X");
+      int m_deformationGradientYFieldId                  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_Y");
+      int m_deformationGradientZFieldId                  = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_Z");
+      int m_deformationGradientDotXFieldId               = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_Dot_X");
+      int m_deformationGradientDotYFieldId               = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_Dot_Y");
+      int m_deformationGradientDotZFieldId               = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Velocity_Gradient_Dot_Z");
+      velocityGradientX         = blockIt->getData( m_deformationGradientXFieldId            , PeridigmField::STEP_NONE);
+      velocityGradientY         = blockIt->getData( m_deformationGradientYFieldId            , PeridigmField::STEP_NONE);
+      velocityGradientZ         = blockIt->getData( m_deformationGradientZFieldId            , PeridigmField::STEP_NONE);
+      velocityGradientDotX      = blockIt->getData( m_deformationGradientDotXFieldId         , PeridigmField::STEP_NONE);
+      velocityGradientDotY      = blockIt->getData( m_deformationGradientDotYFieldId         , PeridigmField::STEP_NONE);
+      velocityGradientDotZ      = blockIt->getData( m_deformationGradientDotZFieldId         , PeridigmField::STEP_NONE);
+      }
+       double *velocityGradientX_values      ;  velocityGradientX->ExtractView(&velocityGradientX_values); // DEFGRAD - ELEMENT  - VECTOR
+       double *velocityGradientY_values      ;  velocityGradientY->ExtractView(&velocityGradientY_values); // DEFGRAD - ELEMENT  - VECTOR
+       double *velocityGradientZ_values      ;  velocityGradientZ->ExtractView(&velocityGradientZ_values); // DEFGRAD - ELEMENT  - VECTOR
+       double *velocityGradientDotX_values   ;  velocityGradientDotX->ExtractView(&velocityGradientDotX_values); // DEFGRAD - ELEMENT  - VECTOR
+       double *velocityGradientDotY_values   ;  velocityGradientDotY->ExtractView(&velocityGradientDotY_values); // DEFGRAD - ELEMENT  - VECTOR
+       double *velocityGradientDotZ_values   ;  velocityGradientDotZ->ExtractView(&velocityGradientDotZ_values); // DEFGRAD - ELEMENT - VECTOR
+      for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+        for(int j = 0 ; j++ ; j < 3){
+        DEFGRAD.read( (char*)&velocityGradientX_values[i*3+j], sizeof(double) );
+        DEFGRAD.read( (char*)&velocityGradientY_values[i*3+j], sizeof(double) );
+        DEFGRAD.read( (char*)&velocityGradientZ_values[i*3+j], sizeof(double) );
+        DEFGRAD.read( (char*)&velocityGradientDotX_values[i*3+j], sizeof(double) );
+        DEFGRAD.read( (char*)&velocityGradientDotY_values[i*3+j], sizeof(double) );
+        DEFGRAD.read( (char*)&velocityGradientDotZ_values[i*3+j], sizeof(double) );
+      }
+      }
+    DEFGRAD.close();
+    MPI_Barrier(PETSC_COMM_WORLD);
+
+
+  FILESTREAM << "PeridigmRestarts/RestartGLStrain." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream GLSTRAIN;
+  GLSTRAIN.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+    for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+      std::string blockName = blockIt->getName();
+      Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+      int m_greenLagrangeStrainFieldId                   = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::FULL_TENSOR, PeridigmField::TWO_STEP, "Green_Lagrange_Strain");
+      Green_Lagrange_Strain_N   = blockIt->getData( m_greenLagrangeStrainFieldId             , PeridigmField::STEP_N);
+      Green_Lagrange_Strain_NP1 = blockIt->getData( m_greenLagrangeStrainFieldId             , PeridigmField::STEP_NP1);
+      }
+       double *Green_Lagrange_Strain_N_val   ;  Green_Lagrange_Strain_N->ExtractView(&Green_Lagrange_Strain_N_val); //GLSTRAIN - ELEMENT - FULLTENSOR
+       double *Green_Lagrange_Strain_NP1_val ;  Green_Lagrange_Strain_NP1->ExtractView(&Green_Lagrange_Strain_NP1_val); //GLSTRAIN - ELEMENT - FULLTENSOR
+      for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+        for(int j = 0 ; j++ ; j < 9){
+         GLSTRAIN.read( (char*)&Green_Lagrange_Strain_N_val[i*9+j], sizeof(double));
+         GLSTRAIN.read( (char*)&Green_Lagrange_Strain_NP1_val[i*9+j], sizeof(double));
+        }
+      }
+    GLSTRAIN.close();
+    MPI_Barrier(PETSC_COMM_WORLD);
+
+    FILESTREAM << "PeridigmRestarts/RestartPStrain." << rank << "." << par->stepNumber << ".dat";
+    FILENAME = FILESTREAM.str();
+    ifstream PSTRAIN;
+    PSTRAIN.open(FILENAME, ios::in | ios::binary);
+    FILESTREAM.str("");FILESTREAM.clear();
+      for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+        std::string blockName = blockIt->getName();
+        Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+        int m_principalStrainsFieldId                      = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::VECTOR, PeridigmField::CONSTANT, "Principal_Strains");
+        Principal_Strains         = blockIt->getData( m_principalStrainsFieldId                , PeridigmField::STEP_NONE);
+        }
+       double *Principal_Strains_values      ;  Principal_Strains->ExtractView(&Principal_Strains_values); //PSTRAIN - ELEMENT - VECTOR
+        for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+          for(int j = 0 ; j++ ; j < 3){
+            PSTRAIN.read( (char*)&Principal_Strains_values[i*3+j], sizeof(double) );
+          }
+        }
+      PSTRAIN.close();
+      MPI_Barrier(PETSC_COMM_WORLD);
+
+
+   FILESTREAM << "PeridigmRestarts/RestartPK2_strainrate." << rank << "." << par->stepNumber << ".dat";
+   FILENAME = FILESTREAM.str();
+   ifstream SRATE_PK2;
+   SRATE_PK2.open(FILENAME, ios::in | ios::binary);
+   FILESTREAM.str("");FILESTREAM.clear();
+      for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+        std::string blockName = blockIt->getName();
+        Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+        int m_strainRateFieldId                            = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::FULL_TENSOR, PeridigmField::CONSTANT, "Strain_Rate");
+        int m_PK2StressFieldId                             = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::FULL_TENSOR, PeridigmField::TWO_STEP, "PK2_Stress");
+        StrainRate                = blockIt->getData( m_strainRateFieldId                      , PeridigmField::STEP_NONE);
+        PK2_Stress_N              = blockIt->getData( m_PK2StressFieldId                       , PeridigmField::STEP_N);
+        PK2_Stress_NP1            = blockIt->getData( m_PK2StressFieldId                       , PeridigmField::STEP_NP1);
+        }
+       double *StrainRate_values             ;  StrainRate->ExtractView(&StrainRate_values); //SRATE_PK2 - ELEMENT - FULL TENSOR
+       double *PK2_Stress_N_values           ;  PK2_Stress_N->ExtractView(&PK2_Stress_N_values); //STRATE_PK2 - ELEMENT - FULL TENSOR
+       double *PK2_Stress_NP1_values         ;  PK2_Stress_NP1->ExtractView(&PK2_Stress_NP1_values); //STRATE_PK2 - ELEMENT - FULL TENSOR
+        for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+          for(int j = 0 ; j++ ; j < 9){
+           SRATE_PK2.read( (char*)&StrainRate_values[i*9+j], sizeof(double));
+           SRATE_PK2.read( (char*)&PK2_Stress_N_values[i*9+j], sizeof(double));
+           SRATE_PK2.read( (char*)&PK2_Stress_NP1_values[i*9+j], sizeof(double));
+          }
+        }
+      SRATE_PK2.close();
+      MPI_Barrier(PETSC_COMM_WORLD);
+
+   FILESTREAM << "PeridigmRestarts/RestartPiolaStress." << rank << "." << par->stepNumber << ".dat";
+   FILENAME = FILESTREAM.str();
+   ifstream PIOLASTRESS;
+   PIOLASTRESS.open(FILENAME, ios::in | ios::binary);
+   FILESTREAM.str("");FILESTREAM.clear();
+      for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+        std::string blockName = blockIt->getName();
+        Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+        int m_bondLevelPiolaStressXXFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_XX");
+        int m_bondLevelPiolaStressXYFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_XY");
+        int m_bondLevelPiolaStressXZFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_XZ");
+        int m_bondLevelPiolaStressYXFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_YX");
+        int m_bondLevelPiolaStressYYFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_YY");
+        int m_bondLevelPiolaStressYZFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_YZ");
+        int m_bondLevelPiolaStressZXFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_ZX");
+        int m_bondLevelPiolaStressZYFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_ZY");
+        int m_bondLevelPiolaStressZZFieldId                = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Piola_Stress_ZZ");
+        Piola_Stress_XX           = blockIt->getData( m_bondLevelPiolaStressXXFieldId          , PeridigmField::STEP_NONE);
+        Piola_Stress_XY           = blockIt->getData( m_bondLevelPiolaStressXYFieldId          , PeridigmField::STEP_NONE);
+        Piola_Stress_XZ           = blockIt->getData( m_bondLevelPiolaStressXZFieldId          , PeridigmField::STEP_NONE);
+        Piola_Stress_YX           = blockIt->getData( m_bondLevelPiolaStressYXFieldId          , PeridigmField::STEP_NONE);
+        Piola_Stress_YY           = blockIt->getData( m_bondLevelPiolaStressYYFieldId          , PeridigmField::STEP_NONE);
+        Piola_Stress_YZ           = blockIt->getData( m_bondLevelPiolaStressYZFieldId          , PeridigmField::STEP_NONE);
+        Piola_Stress_ZX           = blockIt->getData( m_bondLevelPiolaStressZXFieldId          , PeridigmField::STEP_NONE);
+        Piola_Stress_ZY           = blockIt->getData( m_bondLevelPiolaStressZYFieldId          , PeridigmField::STEP_NONE);
+        Piola_Stress_ZZ           = blockIt->getData( m_bondLevelPiolaStressZZFieldId          , PeridigmField::STEP_NONE);
+        }
+       double *Piola_Stress_XX_values        ;  Piola_Stress_XX->ExtractView(&Piola_Stress_XX_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_XY_values        ;  Piola_Stress_XY->ExtractView(&Piola_Stress_XY_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_XZ_values        ;  Piola_Stress_XZ->ExtractView(&Piola_Stress_XZ_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_YX_values        ;  Piola_Stress_YX->ExtractView(&Piola_Stress_YX_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_YY_values        ;  Piola_Stress_YY->ExtractView(&Piola_Stress_YY_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_YZ_values        ;  Piola_Stress_YZ->ExtractView(&Piola_Stress_YZ_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_ZX_values        ;  Piola_Stress_ZX->ExtractView(&Piola_Stress_ZX_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_ZY_values        ;  Piola_Stress_ZY->ExtractView(&Piola_Stress_ZY_values); //PIOLASTRESS - BOND - SCALAR
+       double *Piola_Stress_ZZ_values        ;  Piola_Stress_ZZ->ExtractView(&Piola_Stress_ZZ_values); //PIOLASTRESS - BOND - SCALAR
+        for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+
+          PIOLASTRESS.read( (char*)&Piola_Stress_XX_values[i], sizeof(double) );
+          PIOLASTRESS.read( (char*)&Piola_Stress_XY_values[i], sizeof(double) );
+          PIOLASTRESS.read( (char*)&Piola_Stress_XZ_values[i], sizeof(double) );
+          PIOLASTRESS.read( (char*)&Piola_Stress_YX_values[i], sizeof(double) );
+          PIOLASTRESS.read( (char*)&Piola_Stress_YY_values[i], sizeof(double) );
+          PIOLASTRESS.read( (char*)&Piola_Stress_YZ_values[i], sizeof(double) );
+          PIOLASTRESS.read( (char*)&Piola_Stress_ZX_values[i], sizeof(double) );
+          PIOLASTRESS.read( (char*)&Piola_Stress_ZY_values[i], sizeof(double) );
+          PIOLASTRESS.read( (char*)&Piola_Stress_ZZ_values[i], sizeof(double) );
+
+      }
+      PIOLASTRESS.close();
+      MPI_Barrier(PETSC_COMM_WORLD);
+
+
+  FILESTREAM << "PeridigmRestarts/RestartStressIntegral." << rank << "." << par->stepNumber << ".dat";
+  FILENAME = FILESTREAM.str();
+  ifstream STRESSINT;
+  STRESSINT.open(FILENAME, ios::in | ios::binary);
+  FILESTREAM.str("");FILESTREAM.clear();
+      for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+        std::string blockName = blockIt->getName();
+        Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+        int m_stressIntegralFieldId                        = fieldManager->getFieldId(PeridigmField::ELEMENT, PeridigmField::FULL_TENSOR, PeridigmField::CONSTANT, "Stress_Integral");
+        Stress_Integral           = blockIt->getData( m_stressIntegralFieldId                  , PeridigmField::STEP_NONE);
+        }
+       double *Stress_Integral_values        ;  Stress_Integral->ExtractView(&Stress_Integral_values); //STRESSINT - ELEMENT - FULLTENSOR
+        for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+          for(int j = 0 ; j++ ; j < 9){
+          STRESSINT.read( (char*)&Stress_Integral_values[i*9+j], sizeof(double));
+      }
+      }
+      STRESSINT.close();
+      MPI_Barrier(PETSC_COMM_WORLD);
+
+   FILESTREAM << "PeridigmRestarts/RestartBondLevelStrain_StrainRate_PK2Stress." << rank << "." << par->stepNumber << ".dat";
+   FILENAME = FILESTREAM.str();
+   ifstream BLEVELSTRAIN_STRAINRATE;
+   BLEVELSTRAIN_STRAINRATE.open(FILENAME, ios::in | ios::binary);
+   FILESTREAM.str("");FILESTREAM.clear();
+      for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+        std::string blockName = blockIt->getName();
+        Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+        int m_bondLevelStrainRateXXFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_XX");
+        int m_bondLevelStrainRateXYFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_XY");
+        int m_bondLevelStrainRateXZFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_XZ");
+        int m_bondLevelStrainRateYXFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_YX");
+        int m_bondLevelStrainRateYYFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_YY");
+        int m_bondLevelStrainRateYZFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_YZ");
+        int m_bondLevelStrainRateZXFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_ZX");
+        int m_bondLevelStrainRateZYFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_ZY");
+        int m_bondLevelStrainRateZZFieldId                 = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Strain_Rate_ZZ");
+        int m_bondLevelStrainXXFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_XX");
+        int m_bondLevelStrainXYFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_XY");
+        int m_bondLevelStrainXZFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_XZ");
+        int m_bondLevelStrainYXFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_YX");
+        int m_bondLevelStrainYYFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_YY");
+        int m_bondLevelStrainYZFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_YZ");
+        int m_bondLevelStrainZXFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_ZX");
+        int m_bondLevelStrainZYFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_ZY");
+        int m_bondLevelStrainZZFieldId                     = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "Strain_ZZ");
+        int m_bondLevelPK2StressXXFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_XX");
+        int m_bondLevelPK2StressXYFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_XY");
+        int m_bondLevelPK2StressXZFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_XZ");
+        int m_bondLevelPK2StressYXFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_YX");
+        int m_bondLevelPK2StressYYFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_YY");
+        int m_bondLevelPK2StressYZFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_YZ");
+        int m_bondLevelPK2StressZXFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_ZX");
+        int m_bondLevelPK2StressZYFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_ZY");
+        int m_bondLevelPK2StressZZFieldId                  = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::TWO_STEP, "PK2_Stress_ZZ");
+        Strain_Rate_XX            = blockIt->getData( m_bondLevelStrainRateXXFieldId           , PeridigmField::STEP_NONE);
+        Strain_Rate_XY            = blockIt->getData( m_bondLevelStrainRateXYFieldId           , PeridigmField::STEP_NONE);
+        Strain_Rate_XZ            = blockIt->getData( m_bondLevelStrainRateXZFieldId           , PeridigmField::STEP_NONE);
+        Strain_Rate_YX            = blockIt->getData( m_bondLevelStrainRateYXFieldId           , PeridigmField::STEP_NONE);
+        Strain_Rate_YY            = blockIt->getData( m_bondLevelStrainRateYYFieldId           , PeridigmField::STEP_NONE);
+        Strain_Rate_YZ            = blockIt->getData( m_bondLevelStrainRateYZFieldId           , PeridigmField::STEP_NONE);
+        Strain_Rate_ZX            = blockIt->getData( m_bondLevelStrainRateZXFieldId           , PeridigmField::STEP_NONE);
+        Strain_Rate_ZY            = blockIt->getData( m_bondLevelStrainRateZYFieldId           , PeridigmField::STEP_NONE);
+        Strain_Rate_ZZ            = blockIt->getData( m_bondLevelStrainRateZZFieldId           , PeridigmField::STEP_NONE);
+        Strain_XX_N               = blockIt->getData( m_bondLevelStrainXXFieldId               , PeridigmField::STEP_N);
+        Strain_XX_NP1             = blockIt->getData( m_bondLevelStrainXXFieldId               , PeridigmField::STEP_NP1);
+        Strain_XY_N               = blockIt->getData( m_bondLevelStrainXYFieldId               , PeridigmField::STEP_N);
+        Strain_XY_NP1             = blockIt->getData( m_bondLevelStrainXYFieldId               , PeridigmField::STEP_NP1);
+        Strain_XZ_N               = blockIt->getData( m_bondLevelStrainXZFieldId               , PeridigmField::STEP_N);
+        Strain_XZ_NP1             = blockIt->getData( m_bondLevelStrainXZFieldId               , PeridigmField::STEP_NP1);
+        Strain_YX_N               = blockIt->getData( m_bondLevelStrainYXFieldId               , PeridigmField::STEP_N);
+        Strain_YX_NP1             = blockIt->getData( m_bondLevelStrainYXFieldId               , PeridigmField::STEP_NP1);
+        Strain_YY_N               = blockIt->getData( m_bondLevelStrainYYFieldId               , PeridigmField::STEP_N);
+        Strain_YY_NP1             = blockIt->getData( m_bondLevelStrainYYFieldId               , PeridigmField::STEP_NP1);
+        Strain_YZ_N               = blockIt->getData( m_bondLevelStrainYZFieldId               , PeridigmField::STEP_N);
+        Strain_YZ_NP1             = blockIt->getData( m_bondLevelStrainYZFieldId               , PeridigmField::STEP_NP1);
+        Strain_ZX_N               = blockIt->getData( m_bondLevelStrainZXFieldId               , PeridigmField::STEP_N);
+        Strain_ZX_NP1             = blockIt->getData( m_bondLevelStrainZXFieldId               , PeridigmField::STEP_NP1);
+        Strain_ZY_N               = blockIt->getData( m_bondLevelStrainZYFieldId               , PeridigmField::STEP_N);
+        Strain_ZY_NP1             = blockIt->getData( m_bondLevelStrainZYFieldId               , PeridigmField::STEP_NP1);
+        Strain_ZZ_N               = blockIt->getData( m_bondLevelStrainZZFieldId               , PeridigmField::STEP_N);
+        Strain_ZZ_NP1             = blockIt->getData( m_bondLevelStrainZZFieldId               , PeridigmField::STEP_NP1);
+        PK2_Stress_XX_N           = blockIt->getData( m_bondLevelPK2StressXXFieldId            , PeridigmField::STEP_N);
+        PK2_Stress_XY_N           = blockIt->getData( m_bondLevelPK2StressXYFieldId            , PeridigmField::STEP_N);
+        PK2_Stress_XZ_N           = blockIt->getData( m_bondLevelPK2StressXZFieldId            , PeridigmField::STEP_N);
+        PK2_Stress_YX_N           = blockIt->getData( m_bondLevelPK2StressYXFieldId            , PeridigmField::STEP_N);
+        PK2_Stress_YY_N           = blockIt->getData( m_bondLevelPK2StressYYFieldId            , PeridigmField::STEP_N);
+        PK2_Stress_YZ_N           = blockIt->getData( m_bondLevelPK2StressYZFieldId            , PeridigmField::STEP_N);
+        PK2_Stress_ZX_N           = blockIt->getData( m_bondLevelPK2StressZXFieldId            , PeridigmField::STEP_N);
+        PK2_Stress_ZY_N           = blockIt->getData( m_bondLevelPK2StressZYFieldId            , PeridigmField::STEP_N);
+        PK2_Stress_ZZ_N           = blockIt->getData( m_bondLevelPK2StressZZFieldId            , PeridigmField::STEP_N);
+        PK2_Stress_XX_NP1         = blockIt->getData( m_bondLevelPK2StressXXFieldId            , PeridigmField::STEP_NP1);
+        PK2_Stress_XY_NP1         = blockIt->getData( m_bondLevelPK2StressXYFieldId            , PeridigmField::STEP_NP1);
+        PK2_Stress_XZ_NP1         = blockIt->getData( m_bondLevelPK2StressXZFieldId            , PeridigmField::STEP_NP1);
+        PK2_Stress_YX_NP1         = blockIt->getData( m_bondLevelPK2StressYXFieldId            , PeridigmField::STEP_NP1);
+        PK2_Stress_YY_NP1         = blockIt->getData( m_bondLevelPK2StressYYFieldId            , PeridigmField::STEP_NP1);
+        PK2_Stress_YZ_NP1         = blockIt->getData( m_bondLevelPK2StressYZFieldId            , PeridigmField::STEP_NP1);
+        PK2_Stress_ZX_NP1         = blockIt->getData( m_bondLevelPK2StressZXFieldId            , PeridigmField::STEP_NP1);
+        PK2_Stress_ZY_NP1         = blockIt->getData( m_bondLevelPK2StressZYFieldId            , PeridigmField::STEP_NP1);
+        PK2_Stress_ZZ_NP1         = blockIt->getData( m_bondLevelPK2StressZZFieldId            , PeridigmField::STEP_NP1);
+        }
+       double *Strain_Rate_XX_values         ;  Strain_Rate_XX->ExtractView(&Strain_Rate_XX_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_XY_values         ;  Strain_Rate_XY->ExtractView(&Strain_Rate_XY_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_XZ_values         ;  Strain_Rate_XZ->ExtractView(&Strain_Rate_XZ_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_YX_values         ;  Strain_Rate_YX->ExtractView(&Strain_Rate_YX_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_YY_values         ;  Strain_Rate_YY->ExtractView(&Strain_Rate_YY_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_YZ_values         ;  Strain_Rate_YZ->ExtractView(&Strain_Rate_YZ_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_ZX_values         ;  Strain_Rate_ZX->ExtractView(&Strain_Rate_ZX_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_ZY_values         ;  Strain_Rate_ZY->ExtractView(&Strain_Rate_ZY_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_Rate_ZZ_values         ;  Strain_Rate_ZZ->ExtractView(&Strain_Rate_ZZ_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XX_N_values            ;  Strain_XX_N->ExtractView(&Strain_XX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XX_NP1_values          ;  Strain_XX_NP1->ExtractView(&Strain_XX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XY_N_values            ;  Strain_XY_N->ExtractView(&Strain_XY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XY_NP1_values          ;  Strain_XY_NP1->ExtractView(&Strain_XY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XZ_N_values            ;  Strain_XZ_N->ExtractView(&Strain_XZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_XZ_NP1_values          ;  Strain_XZ_NP1->ExtractView(&Strain_XZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YX_N_values            ;  Strain_YX_N->ExtractView(&Strain_YX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YX_NP1_values          ;  Strain_YX_NP1->ExtractView(&Strain_YX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YY_N_values            ;  Strain_YY_N->ExtractView(&Strain_YY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YY_NP1_values          ;  Strain_YY_NP1->ExtractView(&Strain_YY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YZ_N_values            ;  Strain_YZ_N->ExtractView(&Strain_YZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_YZ_NP1_values          ;  Strain_YZ_NP1->ExtractView(&Strain_YZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZX_N_values            ;  Strain_ZX_N->ExtractView(&Strain_ZX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZX_NP1_values          ;  Strain_ZX_NP1->ExtractView(&Strain_ZX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZY_N_values            ;  Strain_ZY_N->ExtractView(&Strain_ZY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZY_NP1_values          ;  Strain_ZY_NP1->ExtractView(&Strain_ZY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZZ_N_values            ;  Strain_ZZ_N->ExtractView(&Strain_ZZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *Strain_ZZ_NP1_values          ;  Strain_ZZ_NP1->ExtractView(&Strain_ZZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XX_N_values        ;  PK2_Stress_XX_N->ExtractView(&PK2_Stress_XX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XX_NP1_values      ;  PK2_Stress_XX_NP1->ExtractView(&PK2_Stress_XX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XY_N_values        ;  PK2_Stress_XY_N->ExtractView(&PK2_Stress_XY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XY_NP1_values      ;  PK2_Stress_XY_NP1->ExtractView(&PK2_Stress_XY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XZ_N_values        ;  PK2_Stress_XZ_N->ExtractView(&PK2_Stress_XZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_XZ_NP1_values      ;  PK2_Stress_XZ_NP1->ExtractView(&PK2_Stress_XZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YX_N_values        ;  PK2_Stress_YX_N->ExtractView(&PK2_Stress_YX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YX_NP1_values      ;  PK2_Stress_YX_NP1->ExtractView(&PK2_Stress_YX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YY_N_values        ;  PK2_Stress_YY_N->ExtractView(&PK2_Stress_YY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YY_NP1_values      ;  PK2_Stress_YY_NP1->ExtractView(&PK2_Stress_YY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YZ_N_values        ;  PK2_Stress_YZ_N->ExtractView(&PK2_Stress_YZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_YZ_NP1_values      ;  PK2_Stress_YZ_NP1->ExtractView(&PK2_Stress_YZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZX_N_values        ;  PK2_Stress_ZX_N->ExtractView(&PK2_Stress_ZX_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZX_NP1_values      ;  PK2_Stress_ZX_NP1->ExtractView(&PK2_Stress_ZX_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZY_N_values        ;  PK2_Stress_ZY_N->ExtractView(&PK2_Stress_ZY_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZY_NP1_values      ;  PK2_Stress_ZY_NP1->ExtractView(&PK2_Stress_ZY_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZZ_N_values        ;  PK2_Stress_ZZ_N->ExtractView(&PK2_Stress_ZZ_N_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+       double *PK2_Stress_ZZ_NP1_values      ;  PK2_Stress_ZZ_NP1->ExtractView(&PK2_Stress_ZZ_NP1_values); //BLEVELSTRAIN_STRAINRATE - BOND - SCALAR
+        for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_XX_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_XY_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_XZ_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_YX_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_YY_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_YZ_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_ZX_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_ZY_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_Rate_ZZ_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_XZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_YZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&Strain_ZZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_XZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_YZ_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZX_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZX_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZY_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZY_NP1_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZZ_N_values[i], sizeof(double) );
+       BLEVELSTRAIN_STRAINRATE.read( (char*)&PK2_Stress_ZZ_NP1_values[i], sizeof(double) );
+
+      }
+      BLEVELSTRAIN_STRAINRATE.close();
+      MPI_Barrier(PETSC_COMM_WORLD);
+
+
+    FILESTREAM << "PeridigmRestarts/RestartBondLevelDefGrad." << rank << "." << par->stepNumber << ".dat";
+    FILENAME = FILESTREAM.str();
+    ifstream BLEVEL_DEFGRAD;
+    BLEVEL_DEFGRAD.open(FILENAME, ios::in | ios::binary);
+    FILESTREAM.str("");FILESTREAM.clear();
+      for(std::vector<Block>::iterator blockIt = blocks->begin() ; blockIt != blocks->end() ; blockIt++){
+        std::string blockName = blockIt->getName();
+        Teuchos::RCP<PeridigmNS::FieldManager> fieldManager = peridigm->getFieldManager();
+        int m_bondLevelDeformationGradientXXFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_XX");
+        int m_bondLevelDeformationGradientXYFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_XY");
+        int m_bondLevelDeformationGradientXZFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_XZ");
+        int m_bondLevelDeformationGradientYXFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_YX");
+        int m_bondLevelDeformationGradientYYFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_YY");
+        int m_bondLevelDeformationGradientYZFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_YZ");
+        int m_bondLevelDeformationGradientZXFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_ZX");
+        int m_bondLevelDeformationGradientZYFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_ZY");
+        int m_bondLevelDeformationGradientZZFieldId        = fieldManager->getFieldId(PeridigmField::BOND, PeridigmField::SCALAR, PeridigmField::CONSTANT, "Deformation_Gradient_ZZ");
+        Deformation_Gradient_XX   = blockIt->getData( m_bondLevelDeformationGradientXXFieldId  , PeridigmField::STEP_NONE);
+        Deformation_Gradient_XY   = blockIt->getData( m_bondLevelDeformationGradientXYFieldId  , PeridigmField::STEP_NONE);
+        Deformation_Gradient_XZ   = blockIt->getData( m_bondLevelDeformationGradientXZFieldId  , PeridigmField::STEP_NONE);
+        Deformation_Gradient_YX   = blockIt->getData( m_bondLevelDeformationGradientYXFieldId  , PeridigmField::STEP_NONE);
+        Deformation_Gradient_YY   = blockIt->getData( m_bondLevelDeformationGradientYYFieldId  , PeridigmField::STEP_NONE);
+        Deformation_Gradient_YZ   = blockIt->getData( m_bondLevelDeformationGradientYZFieldId  , PeridigmField::STEP_NONE);
+        Deformation_Gradient_ZX   = blockIt->getData( m_bondLevelDeformationGradientZXFieldId  , PeridigmField::STEP_NONE);
+        Deformation_Gradient_ZY   = blockIt->getData( m_bondLevelDeformationGradientZYFieldId  , PeridigmField::STEP_NONE);
+        Deformation_Gradient_ZZ   = blockIt->getData( m_bondLevelDeformationGradientZZFieldId  , PeridigmField::STEP_NONE);
+        }
+        double *Deformation_Gradient_XX_values;  Deformation_Gradient_XX->ExtractView(&Deformation_Gradient_XX_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+        double *Deformation_Gradient_XY_values;  Deformation_Gradient_XY->ExtractView(&Deformation_Gradient_XY_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+        double *Deformation_Gradient_XZ_values;  Deformation_Gradient_XZ->ExtractView(&Deformation_Gradient_XZ_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+        double *Deformation_Gradient_YX_values;  Deformation_Gradient_YX->ExtractView(&Deformation_Gradient_YX_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+        double *Deformation_Gradient_YY_values;  Deformation_Gradient_YY->ExtractView(&Deformation_Gradient_YY_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+        double *Deformation_Gradient_YZ_values;  Deformation_Gradient_YZ->ExtractView(&Deformation_Gradient_YZ_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+        double *Deformation_Gradient_ZX_values;  Deformation_Gradient_ZX->ExtractView(&Deformation_Gradient_ZX_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+        double *Deformation_Gradient_ZY_values;  Deformation_Gradient_ZY->ExtractView(&Deformation_Gradient_ZY_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+        double *Deformation_Gradient_ZZ_values;  Deformation_Gradient_ZZ->ExtractView(&Deformation_Gradient_ZZ_values); //BLEVEL_DEFGRAD - BOND - SCALAR
+        for(int i = 0 ; i ++ ; i <  num_PD_nodes_onRank){
+          BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_XX_values[i], sizeof(double) );
+          BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_XY_values[i], sizeof(double) );
+          BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_XZ_values[i], sizeof(double) );
+          BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_YX_values[i], sizeof(double) );
+          BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_YY_values[i], sizeof(double) );
+          BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_YZ_values[i], sizeof(double) );
+          BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_ZX_values[i], sizeof(double) );
+          BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_ZY_values[i], sizeof(double) );
+          BLEVEL_DEFGRAD.read( (char*)&Deformation_Gradient_ZZ_values[i], sizeof(double) );
+      }
+      BLEVEL_DEFGRAD.close();
+      MPI_Barrier(PETSC_COMM_WORLD);
+
+PetscFunctionReturn(ierr);
 }
 
 #undef  __FUNCT__
@@ -5719,6 +15365,44 @@ static PetscErrorCode SolidUpdateStage_GeneralizedAlpha(AppCtx *user,
 ////////////////////////////////////////////////////////////
 
 
+#undef __FUNCT__
+#define __FUNCT__ "applyPeridigmBC"
+PetscErrorCode applyPeridigmBC(PARAMETERS *par,
+                                     AppCtx *user, ParticleManager &manager)
+{
+  // Enforce concrete support structure vdotN>=0
+  PetscFunctionBegin;
+  PetscErrorCode ierr = 0;
+  PetscInt i;
+
+  pair<OutEdgeIterator,OutEdgeIterator> its = out_edges(manager.myTaskVertex,manager.graph);
+
+//   for(auto it=its.first; it != its.second; ++it){
+//     Edge edge = *it;
+//     Vertex v = target(edge,manager.graph);
+//     ParticleInfo info = get(info_property,v);
+//     FieldData fd = get(fd_property,v);
+//     PetscReal VdotN = 0.0;
+//     if(fd.material==0 && !info.isTask){
+//       PetscReal h = 2.4/119.0;
+//       PetscReal h_f = 1.2/119.0;
+//       PetscReal X = info.initialCoord[0]-0.6;
+//       PetscReal Y = info.initialCoord[1]-0.6;
+//       PetscReal Z = info.initialCoord[2]-(120.0/2.0*h-0.32);
+//
+//       if((Z < h/2.0 && (X <= 0.2 || X >= 1.0)) && fd.totalPhysicalVelocity[2] < 0) {
+//         fd.totalPhysicalVelocity[2] = 0.0; // Unclamped vertial supports, 200mm width, x
+//         fd.totalPhysicalDisplacement[2] = fd.totalPhysicalDisplacementOldStep[2]; //
+//         info.currentCoord[2] = info.tempCoord[2] + fd.totalPhysicalDisplacement[2] - fd.totalPhysicalDisplacementOldStep[2];
+//       }
+//
+//     }
+//   put(fd_property,v,fd);
+// }
+  PetscFunctionReturn(ierr);
+}
+
+
 //########## Main Function #############//
 // TODO:
 
@@ -5809,7 +15493,7 @@ int main(int argc, char *argv[]) {
 
   user.TimeRestart       = 0;
   user.StepRestart       = 0;
-  user.FreqRestarts      = 100;
+  user.FreqRestarts      = 1;
 
   user.spacing  = 0.0;
   user.Lx       = 2.4+user.spacing;
@@ -5826,7 +15510,7 @@ int main(int argc, char *argv[]) {
   user.PDInitialTime = par->initialTime;
   user.OutputRestart = par->finalTime;
   PetscBool set;
-  ierr = PetscOptionsBegin(PETSC_COMM_WORLD,"","PhaseFieldCrystal2D Options","IGA");CHKERRQ(ierr);
+  ierr = PetscOptionsBegin(PETSC_COMM_WORLD,"","IGA-PD ConeBlast Options","IGA");CHKERRQ(ierr);
   // Step number of previous restart file. This will be OutputRestart*freqRestart + Previous initial step
   ierr = PetscOptionsInt("-StepRestart","Step of the initial solution from file",__FILE__,user.StepRestart,&user.StepRestart,&set);CHKERRQ(ierr);
   if(set){
@@ -6221,8 +15905,8 @@ int main(int argc, char *argv[]) {
   // outputParams.sublist("Output Variables").set("Cauchy_Stress", true);
   outputParams.sublist("Output Variables").set("Proc_Num", true);
 
-  Teuchos::ParameterList& restartParams = peridigmParams->sublist("Restart");
-  restartParams.set("Restart", PETSC_TRUE);
+//  Teuchos::ParameterList& restartParams = peridigmParams->sublist("Restart");
+ // restartParams.set("Restart", PETSC_TRUE);
   bool restart = peridigmParams->isParameter("Restart");
 
   PetscPrintf(PETSC_COMM_WORLD, "\n#########################################################\n");
@@ -6233,19 +15917,27 @@ int main(int argc, char *argv[]) {
   PeridigmNS::HorizonManager::self().loadHorizonInformationFromBlockParameters(blockParameterList);
   Teuchos::RCP<PeridigmNS::Discretization> textDiscretization(new PeridigmNS::TextFileDiscretization(epetraComm, discParams));
   Teuchos::RCP<PeridigmNS::Peridigm> peridigm(new PeridigmNS::Peridigm(PETSC_COMM_WORLD, peridigmParams, textDiscretization));
+  PetscPrintf(PETSC_COMM_WORLD, "Done Initializing Discretization & PD object\n\n");
+
 
   Teuchos::RCP<Epetra_Vector> initialPosition = peridigm->getX();
   int num_PD_nodes_onRank = initialPosition->MyLength()/3.0;
+  if(par->stepNumber>0){
+  ierr = ReadPeridigmRestarts(par, manager, user.StepRestart, peridigm, num_PD_nodes_onRank);CHKERRQ(ierr);
+  MPI_Barrier(PETSC_COMM_WORLD);
+  ierr = ReadM7Restarts(par, manager, user.StepRestart, peridigm, num_PD_nodes_onRank);CHKERRQ(ierr);
+  MPI_Barrier(PETSC_COMM_WORLD);
+
+  }
   ierr = MPI_Allreduce(&num_PD_nodes_onRank, &num_PD_nodes, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);CHKERRQ(ierr);
+
 
   user.numFluidNodes =  totalNumNodes - num_PD_nodes;
   PetscPrintf(PETSC_COMM_WORLD, "%d PD nodes and %d immersed Fluid Nodes\n", num_PD_nodes, user.numFluidNodes);
   ierr = ParticleDistribute(par, &user, manager);CHKERRQ(ierr);
   manager.sync();
 
-  ierr = ReadPeridigmRestarts(par, manager, user.StepRestart, peridigm, num_PD_nodes_onRank);CHKERRQ(ierr);
 
-  PetscPrintf(PETSC_COMM_WORLD, "Done Initializing Discretization & PD object\n\n");
   peridigm->setTimeStep(par->timeStep);
 
   if (par->stepNumber == 0){
@@ -6533,6 +16225,8 @@ manager.sync();
         }
         }
        manager.sync();
+       ierr = applyPeridigmBC(par, &user, manager);CHKERRQ(ierr);
+       manager.sync();
        manager.connectVertsToTasks(true,&user);
        BGL_FORALL_VERTICES(v,manager.graph,Graph){
        FieldData fd = get(fd_property,v);
@@ -6546,6 +16240,7 @@ manager.sync();
         put(fd_property,v,fd);
        }
        manager.sync();
+
        ///////////////////////////////////////
 
        //// Handoff Kinematic quantites (Velocity, displacement and current coordinate) (IGA->Peridigm) ////
@@ -6895,8 +16590,11 @@ manager.sync();
           }
          }
          manager.sync();
+         ierr = applyPeridigmBC(par, &user, manager);CHKERRQ(ierr);
+         manager.sync();
          manager.connectVertsToTasks(true,&user);
          manager.sync();
+
 /////////////////////////////////////////////
 
 //// Update the Displacement, current position, velocity of PD particles to update the force-State ////
@@ -6969,41 +16667,58 @@ MPI_Barrier(PETSC_COMM_WORLD);
   ierr = VecCopy(user.D1,user.D0);CHKERRQ(ierr);
 
   //Update Solution State
-  par->stepNumber++;
-  peridigm->updateState();
+par->stepNumber++;
+peridigm->updateState();
 
-  if (par->stepNumber % par->FreqResults == 0) {
-       char filename[256];
-       sprintf(filename,"velS%d.dat",par->stepNumber);
-       ierr = IGAWriteVec(user.iga,user.V1,filename);CHKERRQ(ierr);
-       //Write result to an ExodusII file at FreqResult Interval:
-       peridigm->writePeridigmSubModel(par->stepNumber/par->FreqResults);
-   }
+if (par->stepNumber % (RestartStep) == 0) {
+  MPI_Barrier(PETSC_COMM_WORLD);
+  ierr = OutputPeridigmRestarts(par, manager, peridigm, num_PD_nodes_onRank);CHKERRQ(ierr);
+  MPI_Barrier(PETSC_COMM_WORLD);
+  ierr = OutputM7Restarts(par, manager, peridigm, num_PD_nodes_onRank);CHKERRQ(ierr);
+  MPI_Barrier(PETSC_COMM_WORLD);
+}
 
-   // Dump residual At restart interval
-   if (par->stepNumber %  RestartStep == 0) {
-       peridigm->writeRestart(solverParams);
-       ierr = OutputPeridigmRestarts(par, manager, peridigm, num_PD_nodes_onRank);CHKERRQ(ierr);
-       char filename[256];
-       sprintf(filename,"ResS%d.dat",par->stepNumber);
-       ierr = IGAWriteVec(user.iga,Res,filename);CHKERRQ(ierr);
-   }
-   // Dump Restart vector
-   if (par->stepNumber % RestartStep == 0) {
-   char filename[256];
-   sprintf(filename,"velS%d.dat",par->stepNumber);
-   ierr = IGAWriteVec(user.iga,user.V1,filename);CHKERRQ(ierr);
-   sprintf(filename,"acelS%d.dat",par->stepNumber);
-   ierr = IGAWriteVec(user.iga,user.A1,filename);CHKERRQ(ierr);
-   }
+  // Write Restarts & exit.
+  if (par->stepNumber % (RestartStep) == 0) {
 
-      if (par->stepNumber % RestartStep == 0){
-        ierr = OutputRestarts(par,user.V1,user.A1,manager);CHKERRQ(ierr);
-      }
+      peridigm->writeRestart(solverParams);
+      char filename[256];
+      sprintf(filename,"ResS%d.dat",par->stepNumber);
+      ierr = IGAWriteVec(user.iga,Res,filename);CHKERRQ(ierr);
+      sprintf(filename,"velS%d.dat",par->stepNumber);
+      ierr = IGAWriteVec(user.iga,user.V1,filename);CHKERRQ(ierr);
+      sprintf(filename,"acelS%d.dat",par->stepNumber);
+      ierr = IGAWriteVec(user.iga,user.A1,filename);CHKERRQ(ierr);
+      ierr = OutputRestarts(par,user.V1,user.A1,manager);CHKERRQ(ierr);
 
-   if (par->stepNumber % RestartStep == RestartStep-1){
-       ierr = OutputOldGeometry(par,manager);CHKERRQ(ierr);
-     }
+
+      ierr = VecDestroy(&user.V0);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.Va);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.V1);CHKERRQ(ierr);
+
+      ierr = VecDestroy(&user.A0);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.Aa);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.A1);CHKERRQ(ierr);
+
+      ierr = VecDestroy(&user.D0);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.Da);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.D1);CHKERRQ(ierr);
+
+      ierr = VecDestroy(&user.Vp);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.Ap);CHKERRQ(ierr);
+      ierr = VecDestroy(&user.Dp);CHKERRQ(ierr);
+
+      ierr = VecDestroy(&user.dA);CHKERRQ(ierr);
+      PetscPrintf(PETSC_COMM_WORLD, "Restarts Written at time %e step %d. Exiting...\n", par->currentTime, par->stepNumber);
+      MPI_Barrier(PETSC_COMM_WORLD);
+      #ifdef HAVE_MPI
+        PetscFree(par);CHKERRQ(ierr);
+        IGADestroy(&iga);CHKERRQ(ierr);
+        PetscFinalize();CHKERRQ(ierr);
+      #endif
+      PetscFunctionReturn(0);
+
+  }
 
 
    ierr = MatDestroy(&A0);CHKERRQ(ierr);
