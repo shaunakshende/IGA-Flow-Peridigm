@@ -1,0 +1,119 @@
+#
+# CMakeLists.txt file for PeridigmDriver
+#
+
+Cmake_minimum_required (VERSION 2.6)
+
+enable_testing ()
+project(PeridigmDriver)
+
+find_package(PkgConfig)
+set(OLD_PKG $ENV{PKG_CONFIG_PATH})
+set(ENV{PKG_CONFIG_PATH} $ENV{PETSC_DIR}/$ENV{PETSC_ARCH}/lib/pkgconfig)
+pkg_check_modules(PETSC PETSc>=3.4.0)
+pkg_search_module(PETSC REQUIRED petsc)
+set(ENV{PKG_CONFIG_PATH} ${OLD_PKG})
+set(PETSC_LIBRARIES ${PETSC_STATIC_LDFLAGS})
+set(PETSC_LIBRARY ${PETSC_LIBRARIES})
+set(PETSC_INCLUDE_DIR ${PETSC_INCLUDE_DIRS})
+
+
+#find_library(PETIGA_LIB petiga HINTS "tmp/petiga/lib")
+
+#add_library(${PETIGA_LIB} SHARED IMPORTED)
+#set_property(TARGET ${PETIGA_LIB} PROPERTY IMPORTED_LOCATION "$HOME/petsc-3.15.2/PetIGA/arch-linux2-c-opt/lib/libpetiga.so")
+
+find_library(PETIGA_LIB
+            NAMES petiga
+            HINTS "/home1/07855/sshende/petsc-3.15.2/PetIGA/arch-linux2-c-opt/lib")
+
+
+#
+# Boost configuration
+# Questions?  See http://www.cmake.org/cmake/help/cmake2.6docs.html#module:FindBoost
+#
+find_package (Boost 1.65.1 COMPONENTS system unit_test_framework filesystem thread regex graph_parallel mpi serialization)
+if (Boost_FOUND)
+  message ("\nBoost installation:")
+  message ("   Version: ${Boost_MAJOR_VERSION}.${Boost_MINOR_VERSION}.${Boost_SUBMINOR_VERSION}")
+  message ("   Include Directory: ${Boost_INCLUDE_DIRS}")
+  message ("   Library Directory: ${Boost_LIBRARY_DIRS}")
+  message ("   The following libraries are included in Boost_LIBRARIES:")
+  foreach (lib ${Boost_LIBRARIES})
+    message ("      ${lib}")
+  endforeach (lib)
+else ()
+  message ("\nBoost NOT FOUND!  (Try defining BOOST_ROOT)\n")
+endif ()
+
+#
+# Trilinos configuration
+#
+set(TRILINOS_DIR CACHE PATH "Path to Trilinos directory")
+SET(CMAKE_PREFIX_PATH ${TRILINOS_DIR} ${CMAKE_PREFIX_PATH})
+FIND_PACKAGE(Trilinos REQUIRED)
+MESSAGE("\nTrilinos installation:")
+MESSAGE("   Trilinos_DIR = ${Trilinos_DIR}")
+MESSAGE("   Trilinos_VERSION = ${Trilinos_VERSION}")
+MESSAGE("   Trilinos_PACKAGE_LIST = ${Trilinos_PACKAGE_LIST}")
+MESSAGE("   Trilinos_TPL_LIST = ${Trilinos_TPL_LIST}")
+MESSAGE("   Trilinos_TPL_INCLUDE_DIRS = ${Trilinos_TPL_INCLUDE_DIRS}")
+MESSAGE("   Trilinos_TPL_LIBRARIES = ${Trilinos_TPL_LIBRARIES}")
+MESSAGE("   Trilinos_TPL_LIBRARY_DIRS = ${Trilinos_TPL_LIBRARY_DIRS}")
+MESSAGE("   Trilinos_BUILD_SHARED_LIBS = ${Trilinos_BUILD_SHARED_LIBS}")
+MESSAGE("   Trilinos_CXX_COMPILER_FLAGS = ${Trilinos_CXX_COMPILER_FLAGS}")
+# Hack for now until Trilinos exports cmake variable for binaries directory
+SET(Trilinos_BINARY_PATH ${Trilinos_LIBRARY_DIRS}/../bin)
+# verbose output
+MESSAGE("   Trilinos_LIBRARIES = ${Trilinos_LIBRARIES}")
+MESSAGE("   Trilinos_INCLUDE_DIRS = ${Trilinos_INCLUDE_DIRS}")
+MESSAGE("   Trilinos_LIBRARY_DIRS = ${Trilinos_LIBRARY_DIRS}")
+MESSAGE("")
+
+MESSAGE("\nPeridigm installation:")
+MESSAGE("   Peridigm_INCLUDE_DIR = ${Peridigm_INCLUDE_DIR}")
+MESSAGE("   Peridigm_LIB_DIR = ${Peridigm_LIB_DIR}")
+MESSAGE("   Peridigm_LIBS = ${Peridigm_LIBS}")
+MESSAGE("")
+
+set(Required_LIBS
+PeridigmLib
+${Trilinos_LIBRARIES}
+PdNeigh
+QuickGrid
+Utilities
+PdMaterialUtilities
+${Boost_LIBRARIES}
+${PETIGA_LIB}
+${PETSC_LIBRARIES}
+${PETSC_STATIC_LDFLAGS}
+)
+
+set(INCLUDE_DIRS 
+${Trilinos_INCLUDE_DIRS}
+${Trilinos_TPL_INCLUDE_DIRS}
+${Peridigm_INCLUDE_DIR}
+${CMAKE_SOURCE_DIR}/src
+${PETSC_DIR}/include
+${PETSC_DIR}/PetIGA/include
+${PETSC_DIR}/arch-linux2-c-opt/include
+${PETSC_DIR}/arch-linux2-c-opt/lib
+${PETIGA_DIR}/include
+${PETIGA_DIR}/src
+${PETIGA_DIR}/arch-linux2-c-opt/include
+${PETSC_INCLUDE_DIRS}
+${Boost_INCLUDE_DIRS}
+)
+include_directories(${INCLUDE_DIRS})
+
+add_definitions (${PETSC_DEFINITIONS})
+
+set(LIB_DIRS
+${Peridigm_LIB_DIR}
+${Trilinos_LIBRARY_DIRS}
+${PETIGA_LIB}
+${Boost_LIBRARY_DIRS}
+)
+link_directories(${LIB_DIRS})
+
+add_subdirectory (src)

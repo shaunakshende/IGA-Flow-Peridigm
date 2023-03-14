@@ -6,5 +6,5 @@ CXX_DEFINES =
 
 CXX_INCLUDES = -I/work2/07855/sshende/stampede2/projects/trilinos/include -I/opt/apps/intel18/impi18_0/phdf5/1.10.4/x86_64/include -I/work2/07855/sshende/stampede2/boost_1_65_1 -I/opt/intel/compilers_and_libraries_2018.2.199/linux/mkl/include -I/opt/apps/intel18/netcdf/4.6.2/x86_64/include -I/scratch/07855/sshende/peridigm/release/src/Include -I/home1/07855/sshende/petsc-3.15.2/PetIGA/demo/PeridigmIGA/ConeBlast/src -I/home1/apps/intel18/impi18_0/petsc/3.16/include -I/home1/07855/sshende/petsc-3.15.2/PetIGA/include -I/home1/apps/intel18/impi18_0/petsc/3.16/skylake/include -I/home1/apps/intel18/impi18_0/petsc/3.16/skylake/lib -I/home1/07855/sshende/petsc-3.15.2/PetIGA/src -I/home1/07855/sshende/petsc-3.15.2/PetIGA/skylake/include
 
-CXX_FLAGS = -g -O2 -Wall -ansi -pedantic -Wno-long-long -ftrapv -Wno-deprecated -std=c++14 -g
+CXX_FLAGS = -mkl -O3 -mtune=icelake -march=icelake -ansi -pedantic -Wno-long-long -Wno-deprecated -std=c++14 -O3 -DNDEBUG
 

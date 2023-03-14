@@ -14,7 +14,7 @@ $WORK2/apps/cmake/bin/cmake \
 -D PETIGA_DIR:PATH=/home1/07855/sshende/petsc-3.15.2/PetIGA \
 -D CMAKE_C_COMPILER:STRING=`which mpicc` \
 -D CMAKE_CXX_COMPILER:STRING=`which mpicxx` \
--D CMAKE_CXX_FLAGS:STRING="-mkl -Ofast -march=icelake -mtune=skylake -Wall -ansi -pedantic -Wno-long-long -Wno-deprecated -std=c++14" \
--D CMAKE_C_FLAGS:STRING="-mkl -Ofast -march=icelake -mtune=skylake -Wall -ansi -pedantic -Wno-long-long -Wno-deprecated" \
+-D CMAKE_CXX_FLAGS:STRING="-mkl -O2 -march=icelake -mtune=icelake -Wall -ansi -pedantic -Wno-long-long -Wno-deprecated -std=c++14" \
+-D CMAKE_C_FLAGS:STRING="-mkl -O2 -march=icelake -mtune=icelake -Wall -ansi -pedantic -Wno-long-long -Wno-deprecated" \
 $EXTRA_ARGS \
 ..

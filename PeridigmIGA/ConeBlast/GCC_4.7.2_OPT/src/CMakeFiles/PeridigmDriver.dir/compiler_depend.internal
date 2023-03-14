@@ -568,6 +568,7 @@ src/CMakeFiles/PeridigmDriver.dir/PeridigmDriver.cpp.o
  /scratch/07855/sshende/peridigm/release/src/Include/Peridigm_DataLoader.hpp
  /scratch/07855/sshende/peridigm/release/src/Include/Peridigm_Memstat.hpp
  /scratch/07855/sshende/peridigm/release/src/Include/Peridigm_TextFileDiscretization.hpp
+ /scratch/07855/sshende/peridigm/release/src/Include/Peridigm_ExodusDiscretization.hpp
  /scratch/07855/sshende/peridigm/release/src/Include/Peridigm_HorizonManager.hpp
  /home1/07855/sshende/petsc-3.15.2/PetIGA/include/petiga.h
  /home1/apps/intel18/impi18_0/petsc/3.16/include/petsc.h
